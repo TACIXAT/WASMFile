@@ -18,7 +18,7 @@ def leb128Parse(off, file_interface):
 	while b & 0x80:
 		val |= (b & 0x7F) << shift
 		shift += 7
-		b = ord(file_interface.read(off+count, 1))
+		b = ord(file_interface.read(off+shift//7, 1))
 
 	val |= (b & 0x7F) << shift
 	shift += 7
@@ -32,16 +32,16 @@ class WASMSection():
 	def __init__(self, start, file_interface):
 		self.section_id = ord(file_interface.read(start, 1))
 		self.start = start
-		self.data_size, count = leb128Parse(self.start+1, file_interface)
-		self.data_start = start + 1 + count
+		self.data_size, consumed = leb128Parse(self.start+1, file_interface)
+		self.data_start = start + 1 + consumed
 
 	def __repr__(self):
 		return 'WASMSection(%s)' % self.section_id
 
 def nameParse(off, file_interface):
-	name_len, count = leb128Parse(off, file_interface)
-	name = file_interface.read(off+count, name_len)
-	return name, count + name_len
+	name_len, consumed = leb128Parse(off, file_interface)
+	name = file_interface.read(off+consumed, name_len)
+	return name, consumed + name_len
 
 class WASMSectionCustom(WASMSection):
 	def __init__(self, start, file_interface):
@@ -50,11 +50,7 @@ class WASMSectionCustom(WASMSection):
 		self.custom_data_start = self.data_start + consumed
 
 class WASMValType():
-	def __init__(self, start, file_interface):
-		pass
-
-class WASMFunctionType():
-	var_type_lookups = {
+	val_type_lookup = {
 		0x7F: 'i32',
 		0x7E: 'i64',
 		0x7D: 'f32',
@@ -63,40 +59,149 @@ class WASMFunctionType():
 
 	def __init__(self, start, file_interface):
 		self.start = start
+		self.type_id = ord(file_interface.read(self.start, 1))
+		if self.type_id not in self.val_type_lookup:
+			raise WASMError('invalid val type %02x at %x' % (self.type_id, off))
+		self.type = self.val_type_lookup[self.type_id]
+		self.end = self.start + 1
+
+class WASMFunctionType():
+	def __init__(self, start, file_interface):
+		self.start = start
 		magic = ord(file_interface.read(start, 1))
 		if magic != 0x60:
 			raise WASMError('invalid magic on function type: %02x' % magic)
 		
 		off = start + 1
 		# args
-		args_len, count = leb128Parse(off, file_interface)
-		off += count
+		args_len, consumed = leb128Parse(off, file_interface)
+		off += consumed
 		self.arg_types = []
 		for i in range(args_len):
-			self.arg_types.append(self.var_type_lookups[ord(file_interface.read(off, 1))])
-			off += 1
+			val_type, consumed = WASMValType(off, file_interface)
+			self.arg_types.append(val_type)
+			off = val_type.end
 
 		# returns
-		rets_len, count = leb128Parse(off, file_interface)
-		off += count
+		rets_len, consumed = leb128Parse(off, file_interface)
+		off += consumed
 		self.ret_types = []
 		for i in range(rets_len):
-			self.ret_types.append(self.var_type_lookups[ord(file_interface.read(off, 1))])
-			off += 1
+			val_type = WASMValType(off, file_interface)
+			self.arg_types.append(val_type)
+			off = val_type.end
 		self.end = off
 
 
 class WASMSectionType(WASMSection):
 	def __init__(self, start, file_interface):
 		WASMSection.__init__(self, start, file_interface)
-		self.type_count, count = leb128Parse(self.data_start, file_interface)
+		self.type_count, consumed = leb128Parse(self.data_start, file_interface)
 		self.function_prototypes = []
-		off = self.data_start + count
+		off = self.data_start + consumed
 		for i in range(self.type_count):
-			fnproto = WASMFunctionType(off, file_interface)
-			self.function_prototypes.append(fnproto)
-			off = fnproto.end
+			function_proto = WASMFunctionType(off, file_interface)
+			self.function_prototypes.append(function_proto)
+			off = function_proto.end
 
+	def __repr__(self):
+		return 'WASMSectionType'
+
+class WASMSectionFunction(WASMSection):
+	def __init__(self, start, file_interface):
+		WASMSection.__init__(self, start, file_interface)
+		index_count, consumed = leb128Parse(self.data_start, file_interface)
+		off = self.data_start + consumed
+		self.indices = []
+		for i in range(index_count):
+			index, consumed = leb128Parse(off, file_interface)
+			self.indices.append(index)
+			off += consumed
+
+	def __repr__(self):
+		return 'WASMSectionFunction'
+
+class WASMExportDesriptor():
+	index_type_lookup = {
+		0: 'function',
+		1: 'table',
+		2: 'memory',
+		3: 'global',
+	}
+
+	def __init__(self, start, file_interface):
+		off = start
+		type_id = ord(file_interface.read(off, 1))
+		if type_id not in self.index_type_lookup:
+			raise WASMError('invalid export type %02x at %x' % (type_id, off))
+		self.type = self.index_type_lookup[type_id]
+		off += 1
+
+		self.index, consumed = leb128Parse(off, file_interface)
+		off += consumed
+
+		self.end = off
+
+class WASMExport():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		name, consumed = nameParse(off, file_interface)
+		off += consumed
+		self.export_descriptor = WASMExportDesriptor(off, file_interface)
+		self.end = self.export_descriptor.end
+
+class WASMSectionExport(WASMSection):
+	def __init__(self, start, file_interface):
+		WASMSection.__init__(self, start, file_interface)
+		self.exports = []
+
+		export_count, consumed = leb128Parse(self.data_start, file_interface)
+		off = self.data_start + consumed
+		for i in range(export_count):
+			export = WASMExport(off, file_interface)
+			self.exports.append(export)
+			off = export.end
+
+	def __repr__(self):
+		return 'WASMSectionExport'
+
+class WASMFunction():
+	def __init__(self, start, size, file_interface):
+		self.locals = []
+		
+		self.end = None
+
+class WASMCode():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.size, consumed = leb128Parse(start, file_interface)
+		off += consumed
+		self.function = WASMFunction(off, self.size, file_interface)
+		self.end = self.function.end
+
+class WASMSectionCode(WASMSection):
+	def __init__(self, start, file_interface):
+		WASMSection.__init__(self, start, file_interface)
+		self.codes = []
+
+		code_count, consumed = leb128Parse(self.data_start, file_interface)
+		off = self.data_start + consumed
+		for i in range(code_count):
+			code = WASMCode(off, file_interface)
+			self.codes.append(code)
+			off = code.end
+
+	def __repr__(self):
+		return 'WASMSectionCode'
+
+class WASMSectionTemplate(WASMSection):
+	def __init__(self, start, file_interface):
+		WASMSection.__init__(self, start, file_interface)
+
+	def __repr__(self):
+		return 'WASMSectionTemplate'
 
 class WASMFile():
 	section_type_by_id = {
@@ -107,10 +212,10 @@ class WASMFile():
 		# 4: WASMSectionTable,
 		# 5: WASMSectionMemory,
 		# 6: WASMSectionGlobal,
-		# 7: WASMSectionExport,
+		7: WASMSectionExport,
 		# 8: WASMSectionStart,
 		# 9: WASMSectionElement,
-		# 10: WASMSectionCode,
+		10: WASMSectionCode,
 		# 11: WASMSectionData,
 	}
 
