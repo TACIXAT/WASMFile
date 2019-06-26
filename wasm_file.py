@@ -1,3 +1,5 @@
+# WASM parsing library made 
+# Author: TACIXAT
 import sys
 import struct
 
@@ -189,6 +191,8 @@ class WASMFunction():
 			off = local.end
 		self.end = self.start + self.size
 		self.code = file_interface.read(off, self.end-off)
+		if self.code[-1] != 0x0b:
+			raise WASMError('code bytes do not end in 0x0B at %x' % self.end-1)
 
 class WASMCode():
 	def __init__(self, start, file_interface):
