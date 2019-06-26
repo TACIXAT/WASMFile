@@ -166,11 +166,29 @@ class WASMSectionExport(WASMSection):
 	def __repr__(self):
 		return 'WASMSectionExport'
 
+class WASMLocal():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.count, consumed = leb128Parse(off, file_interface)
+		off += consumed
+		self.val_type = WASMValType(off, file_interface)
+		self.end = self.val_type.end
+
 class WASMFunction():
 	def __init__(self, start, size, file_interface):
+		self.start = start
+		self.size = size
 		self.locals = []
-		
-		self.end = None
+		off = self.start 
+		local_count, consumed = leb128Parse(off, file_interface)
+		off += consumed
+		for i in range(local_count):
+			local = WASMLocal(off,file_interface)
+			self.locals.append(local)
+			off = local.end
+		self.end = self.start + self.size
+		self.code = file_interface.read(off, self.end-off)
 
 class WASMCode():
 	def __init__(self, start, file_interface):
