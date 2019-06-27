@@ -12,13 +12,58 @@
 
   (; 0x00 ;) (func (export "unreachable") unreachable)
   (; 0x01 ;) (func (export "nop") nop)
-  (; 0x02 ;) (func (export "block") block $shit (nop) end)
-  (; 0x03 ;) ;; loop      -- not generated in interpreter
-  (; 0x04 ;) ;; if        -- not generated in interpreter
-  (; 0x05 ;) ;; else      -- not generated in interpreter
+  (; 0x02 ;) 
+  (func (export "block") (result i32)
+    block (result i32)
+    i32.const 1
+    end
+  )
+  (; 0x03 ;) 
+  (func (export "loop") (param $x i32)
+    loop $inf
+    i32.const 5
+    set_local $x
+    br 0
+    end
+  )
+  (; 0x04 ;) 
+  (func (export "if") (param $x i32)
+    i32.const 69
+    set_local $x
+    get_local $x
+    if 
+    i32.const 5
+    set_local $x
+    end
+  )
+  (; 0x05 ;) 
+  (func (export "else") (param $x i32)
+    i32.const 69
+    set_local $x
+    get_local $x
+    if 
+    i32.const 5
+    set_local $x
+    else
+    i32.const 10
+    set_local $x
+    end
+  )
   (; 0x0b ;) (func (export "end") (; end ;) )
   (; 0x0c ;) (func (export "br") br 0)
-  (; 0x0d ;) ;; 0x0d br_if  ;; not generated in interpreter
+  (; 0x0d ;) 
+  (func (export "br_if") (param $x i32)
+    i32.const 5
+    set_local $x
+    loop $inf
+    get_local $x
+    i32.const -1
+    i32.add
+    set_local $x
+    get_local $x
+    br_if 0
+    end
+  )
   (; 0x0e ;) (func (export "br_table") i32.const 1 br_table 0)
   (; 0x0f ;) (func (export "return") return)
   (; 0x10 ;) (func (export "call") call $empty)

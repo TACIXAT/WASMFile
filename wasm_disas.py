@@ -1,5 +1,5 @@
 import struct
-from wasm_file import WASMError
+from wasm_file import WASMError, WASMValType
 
 def uleb128Parse(off, file_interface):
 	b = ord(file_interface.read(off, 1))
@@ -151,21 +151,27 @@ class If(WASMInstruction):
 	def __init__(self, start, file_interface):
 		WASMInstruction.__init__(self, start, file_interface)
 		off = start + 1
+
 		self.block_type = WASMBlocktype(off, file_interface)
 		off = self.block_type.end
-		self.if_instructions = WASMExpression(off, file_interface)
 
+		self.if_instructions = WASMExpression(off, file_interface)
 		off = self.if_instructions.end
+
+		self.else_instructions = None
+
 		b = ord(file_interface.read(off, 1))
+		off += 1
 		if b == 0x05:
 			self.else_instructions = WASMExpression(off, file_interface)
 			off = self.else_instructions.end
 			b = ord(file_interface.read(off, 1))
+			off += 1
 
 		if b != 0x0b:
 			raise WASMError('if ended with 0x%x' % b)
 
-		self.end = off + 1
+		self.end = off
 
 	def __repr__(self):
 		output = 'if\n%s' % self.if_instructions

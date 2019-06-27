@@ -292,6 +292,7 @@ def main():
 			for code in section.codes:
 				print(code.function.expression.raw.hex())
 				print(code.function.expression)
+				print()
 
 if __name__ == '__main__':
 	main()
