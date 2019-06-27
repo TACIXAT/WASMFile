@@ -1,6 +1,6 @@
 (module
-  (func (result i32)
-    (i32.const 42)
+  (func (result f32)
+    (f32.const 1.1)
   )
   (export "helloWorld" (func 0))
 )

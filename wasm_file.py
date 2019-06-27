@@ -2,6 +2,7 @@
 # Author: TACIXAT
 import sys
 import struct
+import wasm_disas
 
 class FileInterface():
 	def __init__(self, contents):
@@ -13,20 +14,6 @@ class FileInterface():
 	def __len__(self):
 		return len(self.contents)
 
-def leb128Parse(off, file_interface):
-	b = ord(file_interface.read(off, 1))
-	shift = 0
-	val = 0
-	while b & 0x80:
-		val |= (b & 0x7F) << shift
-		shift += 7
-		b = ord(file_interface.read(off+shift//7, 1))
-
-	val |= (b & 0x7F) << shift
-	shift += 7
-
-	return val, shift // 7
-
 class WASMError(Exception):
 	pass
 
@@ -34,14 +21,14 @@ class WASMSection():
 	def __init__(self, start, file_interface):
 		self.section_id = ord(file_interface.read(start, 1))
 		self.start = start
-		self.data_size, consumed = leb128Parse(self.start+1, file_interface)
+		self.data_size, consumed = wasm_disas.uleb128Parse(self.start+1, file_interface)
 		self.data_start = start + 1 + consumed
 
 	def __repr__(self):
 		return 'WASMSection(%s)' % self.section_id
 
 def nameParse(off, file_interface):
-	name_len, consumed = leb128Parse(off, file_interface)
+	name_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
 	name = file_interface.read(off+consumed, name_len)
 	return name, consumed + name_len
 
@@ -76,16 +63,16 @@ class WASMFunctionType():
 		
 		off = start + 1
 		# args
-		args_len, consumed = leb128Parse(off, file_interface)
+		args_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
 		self.arg_types = []
 		for i in range(args_len):
-			val_type, consumed = WASMValType(off, file_interface)
+			val_type = WASMValType(off, file_interface)
 			self.arg_types.append(val_type)
 			off = val_type.end
 
 		# returns
-		rets_len, consumed = leb128Parse(off, file_interface)
+		rets_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
 		self.ret_types = []
 		for i in range(rets_len):
@@ -98,7 +85,7 @@ class WASMFunctionType():
 class WASMSectionType(WASMSection):
 	def __init__(self, start, file_interface):
 		WASMSection.__init__(self, start, file_interface)
-		self.type_count, consumed = leb128Parse(self.data_start, file_interface)
+		self.type_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		self.function_prototypes = []
 		off = self.data_start + consumed
 		for i in range(self.type_count):
@@ -112,11 +99,11 @@ class WASMSectionType(WASMSection):
 class WASMSectionFunction(WASMSection):
 	def __init__(self, start, file_interface):
 		WASMSection.__init__(self, start, file_interface)
-		index_count, consumed = leb128Parse(self.data_start, file_interface)
+		index_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		off = self.data_start + consumed
 		self.indices = []
 		for i in range(index_count):
-			index, consumed = leb128Parse(off, file_interface)
+			index, consumed = wasm_disas.uleb128Parse(off, file_interface)
 			self.indices.append(index)
 			off += consumed
 
@@ -139,7 +126,7 @@ class WASMExportDesriptor():
 		self.type = self.index_type_lookup[type_id]
 		off += 1
 
-		self.index, consumed = leb128Parse(off, file_interface)
+		self.index, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
 
 		self.end = off
@@ -158,7 +145,7 @@ class WASMSectionExport(WASMSection):
 		WASMSection.__init__(self, start, file_interface)
 		self.exports = []
 
-		export_count, consumed = leb128Parse(self.data_start, file_interface)
+		export_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		off = self.data_start + consumed
 		for i in range(export_count):
 			export = WASMExport(off, file_interface)
@@ -172,7 +159,7 @@ class WASMLocal():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
-		self.count, consumed = leb128Parse(off, file_interface)
+		self.count, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
 		self.val_type = WASMValType(off, file_interface)
 		self.end = self.val_type.end
@@ -183,22 +170,33 @@ class WASMFunction():
 		self.size = size
 		self.locals = []
 		off = self.start 
-		local_count, consumed = leb128Parse(off, file_interface)
+		local_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
 		for i in range(local_count):
 			local = WASMLocal(off,file_interface)
 			self.locals.append(local)
 			off = local.end
 		self.end = self.start + self.size
-		self.code = file_interface.read(off, self.end-off)
-		if self.code[-1] != 0x0b:
-			raise WASMError('code bytes do not end in 0x0B at %x' % self.end-1)
+		self.expression = wasm_disas.WASMExpression(off, file_interface)
+		if self.expression.end != self.end - 1:
+			raise WASMError('end of expression not at expected offset')
+
+		b = ord(file_interface.read(self.expression.end, 1))
+		if b != 0x0b:
+			raise WASMError('expression ended with 0x%x' % b)
+
+
+class WASMInstruction():
+	def __init__(self, start, file_interface):
+		# 01 04 00 41 2a 0b
+		opcode = file_interface.read(start, 1)
+		self.insn = self.switch[opcode]
 
 class WASMCode():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
-		self.size, consumed = leb128Parse(start, file_interface)
+		self.size, consumed = wasm_disas.uleb128Parse(start, file_interface)
 		off += consumed
 		self.function = WASMFunction(off, self.size, file_interface)
 		self.end = self.function.end
@@ -208,7 +206,7 @@ class WASMSectionCode(WASMSection):
 		WASMSection.__init__(self, start, file_interface)
 		self.codes = []
 
-		code_count, consumed = leb128Parse(self.data_start, file_interface)
+		code_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		off = self.data_start + consumed
 		for i in range(code_count):
 			code = WASMCode(off, file_interface)
@@ -289,6 +287,11 @@ def main():
 
 	wasm = WASMFile(file_interface)
 	print(wasm.sections)
+	for section in wasm.sections:
+		if type(section) == WASMSectionCode:
+			for code in section.codes:
+				print(code.function.expression.raw.hex())
+				print(code.function.expression)
 
 if __name__ == '__main__':
 	main()
