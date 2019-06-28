@@ -2,8 +2,9 @@
 ;; modified to include all core opcodes
 
 (module
+  (start 3)
+  (data 0 (offset i32.const 50) "hack the planet!")
   (import "host" "print" (func $print (param i32)))
-
   (type $empty (func))
   (func $empty)
   (memory 1 1)

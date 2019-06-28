@@ -37,6 +37,22 @@ class SectionCustom(Section):
 		Section.__init__(self, start, file_interface)
 		self.name, consumed = nameParse(self.data_start, file_interface)
 		self.custom_data_start = self.data_start + consumed
+		self.custom_data = file_interface.read(self.custom_data_start, self.data_size-consumed)
+		self.end = self.data_start + self.data_size
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Custom Section')
+		print(' '*(indent+2), end='')
+		print(self.name.decode('utf8'))
+		print_bytes(self.custom_data, indent+4)
+		
+def print_bytes(data, indent, width=8):
+	for idx in range(0, len(data), width):
+		print(' '*(indent), end='')
+		for b in data[idx:idx+width]:
+			print('%02x ' % b, end='')
+		print()
 
 class ValueType():
 	value_type_lookup = {
@@ -469,6 +485,12 @@ class SectionStart(Section):
 	def __repr__(self):
 		return 'SectionStart'
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Start Section')
+		print(' '*(indent+2), end='')
+		print('Function %s' % self.function_index)
+
 class Element():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -559,31 +581,45 @@ class Data():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
-		self.memory_index = Index(off, file_interface)
+		self.memory_index = wasm_disas.Index(off, file_interface)
 		off = self.memory_index.end
-		self.expression = Expression(off, file_interface)
+		self.expression = wasm_disas.Expression(off, file_interface)
 		off = self.expression.end
-		byte_count, consumed = uleb128Parse(off, file_interface)
+		byte_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
-		self.bytes = []
-		for i in range(byte_count):
-			self.bytes.append(file_interface.read(off, 1))
-			off += 1
+		self.bytes = file_interface.read(off, byte_count)
+		off += byte_count
 		self.end = off
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Memory Index %s' % (self.memory_index))
+		print(' '*indent, end='')
+		print('Offset')
+		self.expression.pretty_print(indent+2)
+		print_bytes(self.bytes, indent+2)
 
 class SectionData(Section):
 	def __init__(self, start, file_interface):
 		Section.__init__(self, start, file_interface)
 		off = self.data_start
-		data_count, consumed = uleb128Parse(off, file_interface)
+		data_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
 		self.data = []
 		for i in range(data_count):
 			self.data.append(Data(off, file_interface))
 			off = self.data[-1].end
 
+		self.end = off
+
 	def __repr__(self):
 		return 'SectionData'
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Data Section')
+		for datum in self.data:
+			datum.pretty_print(indent+2)
 
 class File():
 	section_type_by_id = {
@@ -598,7 +634,7 @@ class File():
 		8: SectionStart,
 		9: SectionElement,
 		10: SectionCode,
-		# 11: SectionData,
+		11: SectionData,
 	}
 
 	def __init__(self, file_interface, process=True):
@@ -629,7 +665,6 @@ class File():
 		while off < len(self.raw):
 			start = off
 			section_id = ord(self.raw.read(off, 1))
-
 			if section_id in self.section_type_by_id:
 				section_type = self.section_type_by_id[section_id]
 			else:
@@ -652,7 +687,6 @@ def main():
 		file_interface = FileInterface(f.read())
 
 	wasm = File(file_interface)
-	print(wasm.sections)
 	for section in wasm.sections:
 		section.pretty_print()
 
