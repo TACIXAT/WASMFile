@@ -1,5 +1,5 @@
 import struct
-from wasm_file import WASMError, WASMValType
+from wasm_file import WASMError, ValueType
 
 def uleb128Parse(off, file_interface):
 	b = ord(file_interface.read(off, 1))
@@ -41,15 +41,16 @@ def f64Parse(off, file_interface):
 	f64, = struct.unpack('<d', f64_bytes)
 	return f64, 8
 
-class WASMInstruction():
+class Instruction():
 	def __init__(self, start, file_interface):
 		self.start = start
 		self.opcode = ord(file_interface.read(start, 1))
 		self.end = start + 1
 
-class WASMMemarg():
+class Memarg():
 	def __init__(self, start, file_interface):
-		off = start
+		self.start = start
+		off = self.start
 		self.alignment, consumed = uleb128Parse(off, file_interface)
 		off += consumed
 		self.offset, consumed = uleb128Parse(off, file_interface)
@@ -58,115 +59,119 @@ class WASMMemarg():
 	def __repr__(self):
 		return 'o:%d, a:%d' % (self.offset, self.alignment)
 
-class WASMInstructionMemory(WASMInstruction):
+class InstructionMemory(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start+1
-		self.memarg = WASMMemarg(off, file_interface)
+		self.memarg = Memarg(off, file_interface)
 		self.end = self.memarg.end
 
 class Index():
 	def __init__(self, start, file_interface):
-		self.index, consumed = uleb128Parse(start, file_interface)
-		self.end = start + consumed
+		self.start = start
+		self.index, consumed = uleb128Parse(self.start, file_interface)
+		self.end = self.start + consumed
 
 	def __repr__(self):
 		return '%d' % self.index
 
-class WASMInstructionLocal(WASMInstruction):
+	def pretty_print(self):
+		print('Index(%d)' % self.index)
+
+class InstructionLocal(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		self.local_index = Index(off, file_interface)
 		self.end = self.local_index.end
 
-class WASMInstructionGlobal(WASMInstruction):
+class InstructionGlobal(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		self.global_index = Index(off, file_interface)
 		self.end = self.global_index.end
 
-class WASMInstructionBranch(WASMInstruction):
+class InstructionBranch(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		self.label_index = Index(off, file_interface)
 		self.end = self.label_index.end
 
-class Unreachable(WASMInstruction):
+class Unreachable(Instruction):
 	def __repr__(self):
 		return 'unreachable'
 
-class Nop(WASMInstruction):
+class Nop(Instruction):
 	def __repr__(self):
 		return 'nop'
 
-class WASMBlocktype():
+class Blocktype():
 	def __init__(self, start, file_interface):
-		b = file_interface.read(start, 1)
+		self.start = start
+		b = file_interface.read(self.start, 1)
 		if b == b'\x40':
-			self.type = None
+			self.value_type = None
 		else:
-			self.type = WASMValType(start, file_interface)
-		self.end = start + 1
+			self.value_type = ValueType(self.start, file_interface)
+		self.end = self.start + 1
 
-class Block(WASMInstruction):
+class Block(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
-		self.block_type = WASMBlocktype(off, file_interface)
+		self.block_type = Blocktype(off, file_interface)
 		off = self.block_type.end
-		self.block_instructions = WASMExpression(off, file_interface)
+		self.block_instructions = Expression(off, file_interface)
 
 		off = self.block_instructions.end
-		b = ord(file_interface.read(off, 1))
+		b = ord(file_interface.read(off-1, 1))
 		if b != 0x0b:
 			raise WASMError('block ended with 0x%x' % b)
 
-		self.end = off + 1
+		self.end = off
 
 	def __repr__(self):
 		return '\n'.join(['block', str(self.block_instructions), 'end'])
 
-class Loop(WASMInstruction):
+class Loop(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
-		self.block_type = WASMBlocktype(off, file_interface)
+		self.block_type = Blocktype(off, file_interface)
 		off = self.block_type.end
-		self.loop_instructions = WASMExpression(off, file_interface)
+		self.loop_instructions = Expression(off, file_interface)
 
 		off = self.loop_instructions.end
-		b = ord(file_interface.read(off, 1))
+		b = ord(file_interface.read(off-1, 1))
 		if b != 0x0b:
 			raise WASMError('loop ended with 0x%x' % b)
 
-		self.end = off + 1
+		self.end = off
 
 	def __repr__(self):
 		return '\n'.join(['block', str(self.loop_instructions), 'end'])
 
-class If(WASMInstruction):
+class If(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 
-		self.block_type = WASMBlocktype(off, file_interface)
+		self.block_type = Blocktype(off, file_interface)
 		off = self.block_type.end
 
-		self.if_instructions = WASMExpression(off, file_interface)
+		self.if_instructions = Expression(off, file_interface)
 		off = self.if_instructions.end
 
 		self.else_instructions = None
 
-		b = ord(file_interface.read(off, 1))
-		off += 1
+		b = ord(file_interface.read(off-1, 1))
 		if b == 0x05:
-			self.else_instructions = WASMExpression(off, file_interface)
+			self.else_instructions = Expression(off, file_interface)
 			off = self.else_instructions.end
-			b = ord(file_interface.read(off, 1))
-			off += 1
+			b = ord(file_interface.read(off-1, 1))
+			off
 
 		if b != 0x0b:
 			raise WASMError('if ended with 0x%x' % b)
@@ -179,17 +184,17 @@ class If(WASMInstruction):
 			output += '\nelse\n%s' % self.else_instructions
 		return output
 
-class Branch(WASMInstructionBranch):
+class Branch(InstructionBranch):
 	def __repr__(self):
 		return 'br'
 
-class BranchIf(WASMInstructionBranch):
+class BranchIf(InstructionBranch):
 	def __repr__(self):
 		return 'br_if'
 
-class BranchTable(WASMInstruction):
+class BranchTable(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		label_count, consumed = uleb128Parse(off, file_interface)
 		off += consumed
@@ -203,9 +208,9 @@ class BranchTable(WASMInstruction):
 	def __repr__(self):
 		return 'br_table'
 
-class Call(WASMInstruction):
+class Call(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		self.function_index = Index(off, file_interface)
 		self.end = self.function_index.end
@@ -213,9 +218,9 @@ class Call(WASMInstruction):
 	def __repr__(self):
 		return 'call'
 
-class CallIndirect(WASMInstruction):
+class CallIndirect(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		self.type_index = Index(off, file_interface)
 		b = file_interface.read(self.type_index.end, 1)
@@ -226,137 +231,137 @@ class CallIndirect(WASMInstruction):
 	def __repr__(self):
 		return 'call_indirect'
 
-class End(WASMInstruction):
+class End(Instruction):
 	def __repr__(self):
 		return 'end'
 
-class Return(WASMInstruction):
+class Return(Instruction):
 	def __repr__(self):
 		return 'return'
 
-class Drop(WASMInstruction):
+class Drop(Instruction):
 	def __repr__(self):
 		return 'drop'
 
-class Select(WASMInstruction):
+class Select(Instruction):
 	def __repr__(self):
 		return 'select'
 
-class LocalGet(WASMInstructionLocal):
+class LocalGet(InstructionLocal):
 	def __repr__(self):
 		return 'local.get %s' % self.local_index
 
-class LocalSet(WASMInstructionLocal):
+class LocalSet(InstructionLocal):
 	def __repr__(self):
 		return 'local.set %s' % self.local_index
 
-class LocalTee(WASMInstructionLocal):
+class LocalTee(InstructionLocal):
 	def __repr__(self):
 		return 'local.tee %s' % self.local_index
 
-class GlobalGet(WASMInstructionGlobal):
+class GlobalGet(InstructionGlobal):
 	def __repr__(self):
 		return 'global.get %s' % self.global_index
 
-class GlobalSet(WASMInstructionGlobal):
+class GlobalSet(InstructionGlobal):
 	def __repr__(self):
 		return 'global.set %s' % self.global_index
 
-class I32Load(WASMInstructionMemory):
+class I32Load(InstructionMemory):
 	def __repr__(self):
 		return 'i32.load ' + str(self.memarg)
 		
-class I64Load(WASMInstructionMemory):
+class I64Load(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load ' + str(self.memarg)
 		
-class F32Load(WASMInstructionMemory):
+class F32Load(InstructionMemory):
 	def __repr__(self):
 		return 'f32.load ' + str(self.memarg)
 		
-class F64Load(WASMInstructionMemory):
+class F64Load(InstructionMemory):
 	def __repr__(self):
 		return 'f64.load ' + str(self.memarg)
 		
-class I32Load8_s(WASMInstructionMemory):
+class I32Load8_s(InstructionMemory):
 	def __repr__(self):
 		return 'i32.load8_s ' + str(self.memarg)
 		
-class I32Load8_u(WASMInstructionMemory):
+class I32Load8_u(InstructionMemory):
 	def __repr__(self):
 		return 'i32.load8_u ' + str(self.memarg)
 		
-class I32Load16S(WASMInstructionMemory):
+class I32Load16S(InstructionMemory):
 	def __repr__(self):
 		return 'i32.load16_s ' + str(self.memarg)
 		
-class I32Load16U(WASMInstructionMemory):
+class I32Load16U(InstructionMemory):
 	def __repr__(self):
 		return 'i32.load16_u ' + str(self.memarg)
 		
-class I64Load8S(WASMInstructionMemory):
+class I64Load8S(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load8_s ' + str(self.memarg)
 		
-class I64Load8U(WASMInstructionMemory):
+class I64Load8U(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load8_u ' + str(self.memarg)
 		
-class I64Load16S(WASMInstructionMemory):
+class I64Load16S(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load16_s ' + str(self.memarg)
 		
-class I64Load16U(WASMInstructionMemory):
+class I64Load16U(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load16_u ' + str(self.memarg)
 		
-class I64Load32S(WASMInstructionMemory):
+class I64Load32S(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load32_s ' + str(self.memarg)
 		
-class I64Load32U(WASMInstructionMemory):
+class I64Load32U(InstructionMemory):
 	def __repr__(self):
 		return 'i64.load32_u ' + str(self.memarg)
 		
-class I32Store(WASMInstructionMemory):
+class I32Store(InstructionMemory):
 	def __repr__(self):
 		return 'i32.store ' + str(self.memarg)
 		
-class I64Store(WASMInstructionMemory):
+class I64Store(InstructionMemory):
 	def __repr__(self):
 		return 'i64.store ' + str(self.memarg)
 		
-class F32Store(WASMInstructionMemory):
+class F32Store(InstructionMemory):
 	def __repr__(self):
 		return 'f32.store ' + str(self.memarg)
 		
-class F64Store(WASMInstructionMemory):
+class F64Store(InstructionMemory):
 	def __repr__(self):
 		return 'f64.store ' + str(self.memarg)
 		
-class I32Store8(WASMInstructionMemory):
+class I32Store8(InstructionMemory):
 	def __repr__(self):
 		return 'i32.store8 ' + str(self.memarg)
 		
-class I32Store16(WASMInstructionMemory):
+class I32Store16(InstructionMemory):
 	def __repr__(self):
 		return 'i32.store16 ' + str(self.memarg)
 		
-class I64Store8(WASMInstructionMemory):
+class I64Store8(InstructionMemory):
 	def __repr__(self):
 		return 'i64.store8 ' + str(self.memarg)
 		
-class I64Store16(WASMInstructionMemory):
+class I64Store16(InstructionMemory):
 	def __repr__(self):
 		return 'i64.store16 ' + str(self.memarg)
 		
-class I64Store32(WASMInstructionMemory):
+class I64Store32(InstructionMemory):
 	def __repr__(self):
 		return 'i64.store32 ' + str(self.memarg)
 
-class MemorySize(WASMInstruction):
+class MemorySize(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		b = file_interface.read(start+1, 1)
 		if b != b'\x00':
 			raise WASMError('second byte not null')
@@ -365,9 +370,9 @@ class MemorySize(WASMInstruction):
 	def __repr__(self):
 		return 'memory.size'
 
-class MemoryGrow(WASMInstruction):
+class MemoryGrow(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		b = file_interface.read(start+1, 1)
 		if b != b'\x00':
 			raise WASMError('second byte not null')
@@ -376,9 +381,9 @@ class MemoryGrow(WASMInstruction):
 	def __repr__(self):
 		return 'memory.grow'
 
-class I32Const(WASMInstruction):
+class I32Const(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start+1
 		self.constant, consumed = sleb128Parse(off, file_interface)
 		self.end = off + consumed
@@ -386,9 +391,9 @@ class I32Const(WASMInstruction):
 	def __repr__(self):
 		return 'i32.const %d' % self.constant
 
-class I64Const(WASMInstruction):
+class I64Const(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start+1
 		self.constant, consumed = sleb128Parse(off, file_interface)
 		self.end = off + consumed
@@ -396,9 +401,9 @@ class I64Const(WASMInstruction):
 	def __repr__(self):
 		return 'i64.const %f' % self.constant
 
-class F32Const(WASMInstruction):
+class F32Const(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start+1
 		self.constant, consumed = f32Parse(off, file_interface)
 		self.end = off + consumed
@@ -406,9 +411,9 @@ class F32Const(WASMInstruction):
 	def __repr__(self):
 		return 'f32.const %f' % self.constant
 
-class F64Const(WASMInstruction):
+class F64Const(Instruction):
 	def __init__(self, start, file_interface):
-		WASMInstruction.__init__(self, start, file_interface)
+		Instruction.__init__(self, start, file_interface)
 		off = start+1
 		self.constant, consumed = f64Parse(off, file_interface)
 		self.end = off + consumed
@@ -416,499 +421,499 @@ class F64Const(WASMInstruction):
 	def __repr__(self):
 		return 'f64.const %d' % self.constant
 
-class I32Eqz(WASMInstruction): 
+class I32Eqz(Instruction): 
 	def __repr__(self):
 		return 'i32.eqz'
 
-class I32Eq(WASMInstruction): 
+class I32Eq(Instruction): 
 	def __repr__(self):
 		return 'i32.eq'
 
-class I32Ne(WASMInstruction): 
+class I32Ne(Instruction): 
 	def __repr__(self):
 		return 'i32.ne'
 
-class I32LtS(WASMInstruction): 
+class I32LtS(Instruction): 
 	def __repr__(self):
 		return 'i32.lt_s'
 
-class I32LtS(WASMInstruction): 
+class I32LtS(Instruction): 
 	def __repr__(self):
 		return 'i32.lt_u'
 
-class I32GtS(WASMInstruction): 
+class I32GtS(Instruction): 
 	def __repr__(self):
 		return 'i32.gt_s'
 
-class I32GtS(WASMInstruction): 
+class I32GtS(Instruction): 
 	def __repr__(self):
 		return 'i32.gt_u'
 
-class I32LeS(WASMInstruction): 
+class I32LeS(Instruction): 
 	def __repr__(self):
 		return 'i32.le_s'
 
-class I32LeS(WASMInstruction): 
+class I32LeS(Instruction): 
 	def __repr__(self):
 		return 'i32.le_u'
 
-class I32GeS(WASMInstruction): 
+class I32GeS(Instruction): 
 	def __repr__(self):
 		return 'i32.ge_s'
 
-class I32GeS(WASMInstruction): 
+class I32GeS(Instruction): 
 	def __repr__(self):
 		return 'i32.ge_u'
 
-class I64Eqz(WASMInstruction): 
+class I64Eqz(Instruction): 
 	def __repr__(self):
 		return 'i64.eqz'
 
-class I64Eq(WASMInstruction): 
+class I64Eq(Instruction): 
 	def __repr__(self):
 		return 'i64.eq'
 
-class I64Ne(WASMInstruction): 
+class I64Ne(Instruction): 
 	def __repr__(self):
 		return 'i64.ne'
 
-class I64LtS(WASMInstruction): 
+class I64LtS(Instruction): 
 	def __repr__(self):
 		return 'i64.lt_s'
 
-class I64LtU(WASMInstruction): 
+class I64LtU(Instruction): 
 	def __repr__(self):
 		return 'i64.lt_u'
 
-class I64GtS(WASMInstruction): 
+class I64GtS(Instruction): 
 	def __repr__(self):
 		return 'i64.gt_s'
 
-class I64GtU(WASMInstruction): 
+class I64GtU(Instruction): 
 	def __repr__(self):
 		return 'i64.gt_u'
 
-class I64LeS(WASMInstruction): 
+class I64LeS(Instruction): 
 	def __repr__(self):
 		return 'i64.le_s'
 
-class I64LeU(WASMInstruction): 
+class I64LeU(Instruction): 
 	def __repr__(self):
 		return 'i64.le_u'
 
-class I64GeS(WASMInstruction): 
+class I64GeS(Instruction): 
 	def __repr__(self):
 		return 'i64.ge_s'
 
-class I64GeU(WASMInstruction): 
+class I64GeU(Instruction): 
 	def __repr__(self):
 		return 'i64.ge_u'
 
-class F32Eq(WASMInstruction): 
+class F32Eq(Instruction): 
 	def __repr__(self):
 		return 'f32.eq'
 
-class F32Ne(WASMInstruction): 
+class F32Ne(Instruction): 
 	def __repr__(self):
 		return 'f32.ne'
 
-class F32Lt(WASMInstruction): 
+class F32Lt(Instruction): 
 	def __repr__(self):
 		return 'f32.lt'
 
-class F32Gt(WASMInstruction): 
+class F32Gt(Instruction): 
 	def __repr__(self):
 		return 'f32.gt'
 
-class F32Le(WASMInstruction): 
+class F32Le(Instruction): 
 	def __repr__(self):
 		return 'f32.le'
 
-class F32Ge(WASMInstruction): 
+class F32Ge(Instruction): 
 	def __repr__(self):
 		return 'f32.ge'
 
-class F64Eq(WASMInstruction): 
+class F64Eq(Instruction): 
 	def __repr__(self):
 		return 'f64.eq'
 
-class F64Ne(WASMInstruction): 
+class F64Ne(Instruction): 
 	def __repr__(self):
 		return 'f64.ne'
 
-class F64Lt(WASMInstruction): 
+class F64Lt(Instruction): 
 	def __repr__(self):
 		return 'f64.lt'
 
-class F64Gt(WASMInstruction): 
+class F64Gt(Instruction): 
 	def __repr__(self):
 		return 'f64.gt'
 
-class F64Le(WASMInstruction): 
+class F64Le(Instruction): 
 	def __repr__(self):
 		return 'f64.le'
 
-class F64Ge(WASMInstruction): 
+class F64Ge(Instruction): 
 	def __repr__(self):
 		return 'f64.ge'
 
-class I32Clz(WASMInstruction): 
+class I32Clz(Instruction): 
 	def __repr__(self):
 		return 'i32.clz'
 
-class I32Ctz(WASMInstruction): 
+class I32Ctz(Instruction): 
 	def __repr__(self):
 		return 'i32.ctz'
 
-class I32Popcnt(WASMInstruction): 
+class I32Popcnt(Instruction): 
 	def __repr__(self):
 		return 'i32.popcnt'
 
-class I32Add(WASMInstruction): 
+class I32Add(Instruction): 
 	def __repr__(self):
 		return 'i32.add'
 
-class I32Sub(WASMInstruction): 
+class I32Sub(Instruction): 
 	def __repr__(self):
 		return 'i32.sub'
 
-class I32Mul(WASMInstruction): 
+class I32Mul(Instruction): 
 	def __repr__(self):
 		return 'i32.mul'
 
-class I32DivS(WASMInstruction): 
+class I32DivS(Instruction): 
 	def __repr__(self):
 		return 'i32.div_s'
 
-class I32DivU(WASMInstruction): 
+class I32DivU(Instruction): 
 	def __repr__(self):
 		return 'i32.div_u'
 
-class I32RemS(WASMInstruction): 
+class I32RemS(Instruction): 
 	def __repr__(self):
 		return 'i32.rem_s'
 
-class I32RemU(WASMInstruction): 
+class I32RemU(Instruction): 
 	def __repr__(self):
 		return 'i32.rem_u'
 
-class I32And(WASMInstruction): 
+class I32And(Instruction): 
 	def __repr__(self):
 		return 'i32.and'
 
-class I32Or(WASMInstruction): 
+class I32Or(Instruction): 
 	def __repr__(self):
 		return 'i32.or'
 
-class I32Xor(WASMInstruction): 
+class I32Xor(Instruction): 
 	def __repr__(self):
 		return 'i32.xor'
 
-class I32Shl(WASMInstruction): 
+class I32Shl(Instruction): 
 	def __repr__(self):
 		return 'i32.shl'
 
-class I32ShrS(WASMInstruction): 
+class I32ShrS(Instruction): 
 	def __repr__(self):
 		return 'i32.shr_s'
 
-class I32ShrU(WASMInstruction): 
+class I32ShrU(Instruction): 
 	def __repr__(self):
 		return 'i32.shr_u'
 
-class I32Rotl(WASMInstruction): 
+class I32Rotl(Instruction): 
 	def __repr__(self):
 		return 'i32.rotl'
 
-class I32Rotr(WASMInstruction): 
+class I32Rotr(Instruction): 
 	def __repr__(self):
 		return 'i32.rotr'
 
-class I64Clz(WASMInstruction): 
+class I64Clz(Instruction): 
 	def __repr__(self):
 		return 'i64.clz'
 
-class I64Ctz(WASMInstruction): 
+class I64Ctz(Instruction): 
 	def __repr__(self):
 		return 'i64.ctz'
 
-class I64Popcnt(WASMInstruction): 
+class I64Popcnt(Instruction): 
 	def __repr__(self):
 		return 'i64.popcnt'
 
-class I64Add(WASMInstruction): 
+class I64Add(Instruction): 
 	def __repr__(self):
 		return 'i64.add'
 
-class I64Sub(WASMInstruction): 
+class I64Sub(Instruction): 
 	def __repr__(self):
 		return 'i64.sub'
 
-class I64Mul(WASMInstruction): 
+class I64Mul(Instruction): 
 	def __repr__(self):
 		return 'i64.mul'
 
-class I64DivS(WASMInstruction): 
+class I64DivS(Instruction): 
 	def __repr__(self):
 		return 'i64.div_s'
 
-class I64DivU(WASMInstruction): 
+class I64DivU(Instruction): 
 	def __repr__(self):
 		return 'i64.div_u'
 
-class I64RemS(WASMInstruction): 
+class I64RemS(Instruction): 
 	def __repr__(self):
 		return 'i64.rem_s'
 
-class I64RemU(WASMInstruction): 
+class I64RemU(Instruction): 
 	def __repr__(self):
 		return 'i64.rem_u'
 
-class I64And(WASMInstruction): 
+class I64And(Instruction): 
 	def __repr__(self):
 		return 'i64.and'
 
-class I64Or(WASMInstruction): 
+class I64Or(Instruction): 
 	def __repr__(self):
 		return 'i64.or'
 
-class I64Xor(WASMInstruction): 
+class I64Xor(Instruction): 
 	def __repr__(self):
 		return 'i64.xor'
 
-class I64Shl(WASMInstruction): 
+class I64Shl(Instruction): 
 	def __repr__(self):
 		return 'i64.shl'
 
-class I64ShrS(WASMInstruction): 
+class I64ShrS(Instruction): 
 	def __repr__(self):
 		return 'i64.shr_s'
 
-class I64ShrU(WASMInstruction): 
+class I64ShrU(Instruction): 
 	def __repr__(self):
 		return 'i64.shr_u'
 
-class I64Rotl(WASMInstruction): 
+class I64Rotl(Instruction): 
 	def __repr__(self):
 		return 'i64.rotl'
 
-class I64Rotr(WASMInstruction): 
+class I64Rotr(Instruction): 
 	def __repr__(self):
 		return 'i64.rotr'
 
-class F32Abs(WASMInstruction): 
+class F32Abs(Instruction): 
 	def __repr__(self):
 		return 'f32.abs'
 
-class F32Neg(WASMInstruction): 
+class F32Neg(Instruction): 
 	def __repr__(self):
 		return 'f32.neg'
 
-class F32Ceil(WASMInstruction): 
+class F32Ceil(Instruction): 
 	def __repr__(self):
 		return 'f32.ceil'
 
-class F32Floor(WASMInstruction): 
+class F32Floor(Instruction): 
 	def __repr__(self):
 		return 'f32.floor'
 
-class F32Trunc(WASMInstruction): 
+class F32Trunc(Instruction): 
 	def __repr__(self):
 		return 'f32.trunc'
 
-class F32Nearest(WASMInstruction): 
+class F32Nearest(Instruction): 
 	def __repr__(self):
 		return 'f32.nearest'
 
-class F32Sqrt(WASMInstruction): 
+class F32Sqrt(Instruction): 
 	def __repr__(self):
 		return 'f32.sqrt'
 
-class F32Add(WASMInstruction): 
+class F32Add(Instruction): 
 	def __repr__(self):
 		return 'f32.add'
 
-class F32Sub(WASMInstruction): 
+class F32Sub(Instruction): 
 	def __repr__(self):
 		return 'f32.sub'
 
-class F32Mul(WASMInstruction): 
+class F32Mul(Instruction): 
 	def __repr__(self):
 		return 'f32.mul'
 
-class F32Div(WASMInstruction): 
+class F32Div(Instruction): 
 	def __repr__(self):
 		return 'f32.div'
 
-class F32Min(WASMInstruction): 
+class F32Min(Instruction): 
 	def __repr__(self):
 		return 'f32.min'
 
-class F32Max(WASMInstruction): 
+class F32Max(Instruction): 
 	def __repr__(self):
 		return 'f32.max'
 
-class F32Copysign(WASMInstruction): 
+class F32Copysign(Instruction): 
 	def __repr__(self):
 		return 'f32.copysign'
 
-class F64Abs(WASMInstruction): 
+class F64Abs(Instruction): 
 	def __repr__(self):
 		return 'f64.abs'
 
-class F64Neg(WASMInstruction): 
+class F64Neg(Instruction): 
 	def __repr__(self):
 		return 'f64.neg'
 
-class F64Ceil(WASMInstruction): 
+class F64Ceil(Instruction): 
 	def __repr__(self):
 		return 'f64.ceil'
 
-class F64Floor(WASMInstruction): 
+class F64Floor(Instruction): 
 	def __repr__(self):
 		return 'f64.floor'
 
-class F64Trunc(WASMInstruction): 
+class F64Trunc(Instruction): 
 	def __repr__(self):
 		return 'f64.trunc'
 
-class F64Nearest(WASMInstruction): 
+class F64Nearest(Instruction): 
 	def __repr__(self):
 		return 'f64.nearest'
 
-class F64Sqrt(WASMInstruction): 
+class F64Sqrt(Instruction): 
 	def __repr__(self):
 		return 'f64.sqrt'
 
-class F64Add(WASMInstruction): 
+class F64Add(Instruction): 
 	def __repr__(self):
 		return 'f64.add'
 
-class F64Sub(WASMInstruction): 
+class F64Sub(Instruction): 
 	def __repr__(self):
 		return 'f64.sub'
 
-class F64Mul(WASMInstruction): 
+class F64Mul(Instruction): 
 	def __repr__(self):
 		return 'f64.mul'
 
-class F64Div(WASMInstruction): 
+class F64Div(Instruction): 
 	def __repr__(self):
 		return 'f64.div'
 
-class F64Min(WASMInstruction): 
+class F64Min(Instruction): 
 	def __repr__(self):
 		return 'f64.min'
 
-class F64Max(WASMInstruction): 
+class F64Max(Instruction): 
 	def __repr__(self):
 		return 'f64.max'
 
-class F64Copysign(WASMInstruction): 
+class F64Copysign(Instruction): 
 	def __repr__(self):
 		return 'f64.copysign'
 
-class I32WrapI64(WASMInstruction): 
+class I32WrapI64(Instruction): 
 	def __repr__(self):
 		return 'i32.wrap_i64'
 
-class I32TruncF32S(WASMInstruction): 
+class I32TruncF32S(Instruction): 
 	def __repr__(self):
 		return 'i32.trunc_f32_s'
 
-class I32TruncF32U(WASMInstruction): 
+class I32TruncF32U(Instruction): 
 	def __repr__(self):
 		return 'i32.trunc_f32_u'
 
-class I32TruncF64S(WASMInstruction): 
+class I32TruncF64S(Instruction): 
 	def __repr__(self):
 		return 'i32.trunc_f64_s'
 
-class I32TruncF64U(WASMInstruction): 
+class I32TruncF64U(Instruction): 
 	def __repr__(self):
 		return 'i32.trunc_f64_u'
 
-class I64ExtendI32S(WASMInstruction): 
+class I64ExtendI32S(Instruction): 
 	def __repr__(self):
 		return 'i64.extend_i32_s'
 
-class I64ExtendI32U(WASMInstruction): 
+class I64ExtendI32U(Instruction): 
 	def __repr__(self):
 		return 'i64.extend_i32_u'
 
-class I64TruncF32S(WASMInstruction): 
+class I64TruncF32S(Instruction): 
 	def __repr__(self):
 		return 'i64.trunc_f32_s'
 
-class I64TruncF32U(WASMInstruction): 
+class I64TruncF32U(Instruction): 
 	def __repr__(self):
 		return 'i64.trunc_f32_u'
 
-class I64TruncF64S(WASMInstruction): 
+class I64TruncF64S(Instruction): 
 	def __repr__(self):
 		return 'i64.trunc_f64_s'
 
-class I64TruncF64U(WASMInstruction): 
+class I64TruncF64U(Instruction): 
 	def __repr__(self):
 		return 'i64.trunc_f64_u'
 
-class F32ConvertI32S(WASMInstruction): 
+class F32ConvertI32S(Instruction): 
 	def __repr__(self):
 		return 'f32.convert_i32_s'
 
-class F32ConvertI32U(WASMInstruction): 
+class F32ConvertI32U(Instruction): 
 	def __repr__(self):
 		return 'f32.convert_i32_u'
 
-class F32ConvertI64S(WASMInstruction): 
+class F32ConvertI64S(Instruction): 
 	def __repr__(self):
 		return 'f32.convert_i64_s'
 
-class F32ConvertI64U(WASMInstruction): 
+class F32ConvertI64U(Instruction): 
 	def __repr__(self):
 		return 'f32.convert_i64_u'
 
-class F32DemoteF64(WASMInstruction): 
+class F32DemoteF64(Instruction): 
 	def __repr__(self):
 		return 'f32.demote_f64'
 
-class F64ConvertI32S(WASMInstruction): 
+class F64ConvertI32S(Instruction): 
 	def __repr__(self):
 		return 'f64.convert_i32_s'
 
-class F64ConvertI32U(WASMInstruction): 
+class F64ConvertI32U(Instruction): 
 	def __repr__(self):
 		return 'f64.convert_i32_u'
 
-class F64ConvertI64S(WASMInstruction): 
+class F64ConvertI64S(Instruction): 
 	def __repr__(self):
 		return 'f64.convert_i64_s'
 
-class F64ConvertI64U(WASMInstruction): 
+class F64ConvertI64U(Instruction): 
 	def __repr__(self):
 		return 'f64.convert_i64_u'
 
-class F64PromoteF32(WASMInstruction): 
+class F64PromoteF32(Instruction): 
 	def __repr__(self):
 		return 'f64.promote_f32'
 
-class I32ReinterpretF32(WASMInstruction): 
+class I32ReinterpretF32(Instruction): 
 	def __repr__(self):
 		return 'i32.reinterpret_f32'
 
-class I64ReinterpretF64(WASMInstruction): 
+class I64ReinterpretF64(Instruction): 
 	def __repr__(self):
 		return 'i64.reinterpret_f64'
 
-class F32ReinterpretI32(WASMInstruction): 
+class F32ReinterpretI32(Instruction): 
 	def __repr__(self):
 		return 'f32.reinterpret_i32'
 
-class F64ReinterpretI64(WASMInstruction): 
+class F64ReinterpretI64(Instruction): 
 	def __repr__(self):
 		return 'f64.reinterpret_i64'
 
-class WASMExpression():
+class Expression():
 	instruction_lookup = {
 		0x00: Unreachable,
 		0x01: Nop,
@@ -1083,14 +1088,17 @@ class WASMExpression():
 		0xBF: F64ReinterpretI64,
 	}
 
-	def __init__(self, start, file_interface):
+	def __init__(self, start, file_interface, end=None):
 		self.start = start
 		self.instructions = []
 		off = start 
 		while True:
 			opcode = ord(file_interface.read(off, 1))
 			# else or end
-			if opcode == 0x05 or opcode == 0x0b:
+			if end != None and off == end-1:
+				break
+
+			if end == None and (opcode == 0x05 or opcode == 0x0b):
 				break
 
 			if opcode not in self.instruction_lookup:
@@ -1100,8 +1108,8 @@ class WASMExpression():
 			self.instructions.append(instruction)
 			off = instruction.end
 
-		self.end = off
-		self.raw = file_interface.read(start, off-start)
+		self.end = off+1 # account of 0x05 and 0x0b
+		self.raw = file_interface.read(start, self.end-start)
 
 	def __repr__(self):
 		return '\n'.join(map(str, self.instructions))

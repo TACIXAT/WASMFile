@@ -1,4 +1,4 @@
-# WASM parsing library made 
+#  parsing library made 
 # Author: TACIXAT
 import sys
 import struct
@@ -17,7 +17,7 @@ class FileInterface():
 class WASMError(Exception):
 	pass
 
-class WASMSection():
+class Section():
 	def __init__(self, start, file_interface):
 		self.section_id = ord(file_interface.read(start, 1))
 		self.start = start
@@ -25,21 +25,21 @@ class WASMSection():
 		self.data_start = start + 1 + consumed
 
 	def __repr__(self):
-		return 'WASMSection(%s)' % self.section_id
+		return 'Section(%s)' % self.section_id
 
 def nameParse(off, file_interface):
 	name_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
 	name = file_interface.read(off+consumed, name_len)
 	return name, consumed + name_len
 
-class WASMSectionCustom(WASMSection):
+class SectionCustom(Section):
 	def __init__(self, start, file_interface):
-		WASMSection.__init__(self, start, file_interface)
+		Section.__init__(self, start, file_interface)
 		self.name, consumed = nameParse(self.data_start, file_interface)
 		self.custom_data_start = self.data_start + consumed
 
-class WASMValType():
-	val_type_lookup = {
+class ValueType():
+	value_type_lookup = {
 		0x7F: 'i32',
 		0x7E: 'i64',
 		0x7D: 'f32',
@@ -49,12 +49,15 @@ class WASMValType():
 	def __init__(self, start, file_interface):
 		self.start = start
 		self.type_id = ord(file_interface.read(self.start, 1))
-		if self.type_id not in self.val_type_lookup:
+		if self.type_id not in self.value_type_lookup:
 			raise WASMError('invalid val type %02x at %x' % (self.type_id, off))
-		self.type = self.val_type_lookup[self.type_id]
+		self.type = self.value_type_lookup[self.type_id]
 		self.end = self.start + 1
 
-class WASMFunctionType():
+	def __repr__(self):
+		return self.type
+
+class FunctionType():
 	def __init__(self, start, file_interface):
 		self.start = start
 		magic = ord(file_interface.read(start, 1))
@@ -63,54 +66,318 @@ class WASMFunctionType():
 		
 		off = start + 1
 		# args
-		args_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		params_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
-		self.arg_types = []
-		for i in range(args_len):
-			val_type = WASMValType(off, file_interface)
-			self.arg_types.append(val_type)
-			off = val_type.end
+		self.param_types = []
+		for i in range(params_len):
+			value_type = ValueType(off, file_interface)
+			self.param_types.append(value_type)
+			off = value_type.end
 
 		# returns
-		rets_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		results_len, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
-		self.ret_types = []
-		for i in range(rets_len):
-			val_type = WASMValType(off, file_interface)
-			self.arg_types.append(val_type)
-			off = val_type.end
+		self.result_types = []
+		for i in range(results_len):
+			value_type = ValueType(off, file_interface)
+			self.result_types.append(value_type)
+			off = value_type.end
 		self.end = off
 
+	def pretty_print(self):
+		print(' '*2 + 'func ', end='')
+		if not len(self.param_types) and not len(self.result_types):
+			print('(empty) ', end='')
 
-class WASMSectionType(WASMSection):
+		for param in self.param_types:
+			print('(param %s) ' % param.type, end='')
+
+		for result in self.result_types:
+			print('(result %s) ' % result.type, end='')
+
+		print()
+
+
+class SectionType(Section):
 	def __init__(self, start, file_interface):
-		WASMSection.__init__(self, start, file_interface)
-		self.type_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
+		Section.__init__(self, start, file_interface)
+		type_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		self.function_prototypes = []
 		off = self.data_start + consumed
-		for i in range(self.type_count):
-			function_proto = WASMFunctionType(off, file_interface)
+		for i in range(type_count):
+			function_proto = FunctionType(off, file_interface)
 			self.function_prototypes.append(function_proto)
 			off = function_proto.end
+		self.end = off
 
 	def __repr__(self):
-		return 'WASMSectionType'
+		return 'SectionType'
 
-class WASMSectionFunction(WASMSection):
+	def pretty_print(self):
+		print('Type Section (0x%x - 0x%x)' % (self.start, self.end))
+		for proto in self.function_prototypes:
+			proto.pretty_print()
+
+class Limits():
 	def __init__(self, start, file_interface):
-		WASMSection.__init__(self, start, file_interface)
+		self.start = start
+		off = self.start
+		self.type_id = ord(file_interface.read(off, 1))
+		off += 1
+		self.minimum, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		off += consumed
+
+		if self.type_id == 1:
+			self.maximum, consumed = wasm_disas.uleb128Parse(off, file_interface)
+			off += consumed
+		else:
+			self.maximum = None
+
+		self.end = off
+
+	def __repr__(self):
+		if self.maximum is not None:
+			return 'min %d,  max %d' % (self.minimum, self.maximum)
+		return 'min %d, max inf' % self.minimum
+
+
+class TableType():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = start
+		self.element_type_id = ord(file_interface.read(off, 1))
+		off += 1
+		if self.element_type_id != 0x70:
+			raise WASMError('invalid element type')
+		self.element_type = 'funcref'
+		self.limits = Limits(off, file_interface)
+		self.end = self.limits.end
+
+	def pretty_print(self):
+		print('TableType(%s %s)' % (self.element_type, self.limits))
+
+class MemoryType():
+	def __init__(self, start, file_interface):
+		self.start = start
+		self.limits = Limits(start, file_interface)
+		self.end = self.limits.end
+
+	def pretty_print(self):
+		print('MemType(%s)' % self.limits)
+
+class GlobalType():
+	mutability_lookup = {
+		0x00: 'constant',
+		0x01: 'variable',
+	}
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.value_type = ValueType(off, file_interface)
+		off = self.value_type.end
+		self.mutability_id = ord(file_interface.read(off, 1))
+		off += 1
+		self.mutability = self.mutability_lookup[self.mutability_id]
+		self.end = off
+
+	def pretty_print(self):
+		print('GlobalType(%s %s)' % (self.value_type, self.mutability))
+
+class ImportDescriptor():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.type_id = ord(file_interface.read(off, 1))
+		off += 1
+		if self.type_id == 0x00:
+			self.type_index = wasm_disas.Index(off, file_interface)
+			off = self.type_index.end
+		elif self.type_id == 0x01:
+			self.tabel_type = TabelType(off, file_interface)
+			off = self.tabel_type.end
+		elif self.type_id == 0x02:
+			self.memory_type = MemoryType(off, file_interface)
+			off = self.memory_type.end
+		elif self.type_id == 0x03:
+			self.global_type = GlobalType(off, file_interface)
+			off = self.global_type.end
+		else:
+			raise WASMError('invalid type id')
+		self.end = off
+
+	def pretty_print(self):
+		if self.type_id == 0x00:
+			print('type %s' % self.type_index)
+		elif self.type_id == 0x01:
+			self.table_type.pretty_print()
+		elif self.type_id == 0x02:
+			self.memory_type.pretty_print()
+		elif self.type_id == 0x03:
+			self.global_type.pretty_print()
+
+
+class Import():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.import_module, consumed = nameParse(off, file_interface)
+		off += consumed
+		self.import_name, consumed = nameParse(off, file_interface)
+		off += consumed
+		self.import_descriptor = ImportDescriptor(off, file_interface)
+		self.end = self.import_descriptor.end
+
+	def pretty_print(self):
+		print('  %s.%s ' % (self.import_module.decode('utf8'), self.import_name.decode('utf8')), end='')
+		self.import_descriptor.pretty_print()
+
+class SectionImport(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
+		off = self.data_start
+		import_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
+		off += consumed
+		self.imports = []
+		for i in range(import_count):
+			self.imports.append(Import(off, file_interface))
+			off = self.imports[-1].end
+
+		self.end = off
+
+	def __repr__(self):
+		return 'SectionImport'
+
+	def pretty_print(self):
+		print('Import Section (0x%x - 0x%x)' % (self.start, self.end))
+		for imp in self.imports:
+			imp.pretty_print()
+
+
+class SectionFunction(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
 		index_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		off = self.data_start + consumed
 		self.indices = []
 		for i in range(index_count):
-			index, consumed = wasm_disas.uleb128Parse(off, file_interface)
+			index = wasm_disas.Index(off, file_interface)
 			self.indices.append(index)
-			off += consumed
+			off = self.indices[-1].end
+		self.end = off
 
 	def __repr__(self):
-		return 'WASMSectionFunction'
+		return 'SectionFunction'
 
-class WASMExportDesriptor():
+	def pretty_print(self):
+		print('Function Section')
+		for idx in range(len(self.indices)):
+			print('  fn %d: type %s' % (idx, self.indices[idx]))
+
+
+class Local():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.count, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		off += consumed
+		self.value_type = ValueType(off, file_interface)
+		self.end = self.value_type.end
+
+class Function():
+	def __init__(self, start, size, file_interface):
+		self.start = start
+		self.size = size
+		self.locals = []
+		off = self.start 
+		local_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		off += consumed
+		for i in range(local_count):
+			local = Local(off,file_interface)
+			self.locals.append(local)
+			off = local.end
+		self.end = self.start + self.size
+		self.expression = wasm_disas.Expression(off, file_interface, end=self.end)
+		if self.expression.end != self.end:
+			raise WASMError('end of expression not at expected offset (0x%x != 0x%x' % (self.expression.end, self.end))
+
+		b = ord(file_interface.read(self.expression.end-1, 1))
+		if b != 0x0b:
+			raise WASMError('expression ended with 0x%x' % b)
+
+class SectionTable(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
+		self.tables = []
+		table_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
+		off = self.data_start + consumed
+		for i in range(table_count):
+			self.tables.append(TableType(off, file_interface))
+			off = self.tables[-1].end
+		self.end = off
+
+	def __repr__(self):
+		return 'SectionTable'
+
+	def pretty_print(self):
+		print('Table Section')
+		for table in self.tables:
+			print('  ', end='')
+			table.pretty_print()
+
+class SectionMemory(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
+		self.memories = []
+		memory_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
+		off = self.data_start + consumed
+		for i in range(memory_count):
+			self.memories.append(MemoryType(off, file_interface))
+			off = self.memories[-1].end
+		self.end = off
+
+	def __repr__(self):
+		return 'SectionMemory'
+
+	def pretty_print(self):
+		print('Memory Section')
+		for mem in self.memories:
+			print('  ', end='')
+			mem.pretty_print()
+
+class Global():
+	def __init__(self, start, file_interface):
+		self.start = start
+		off = self.start
+		self.global_type = GlobalType(off, file_interface)
+		off = self.global_type.end
+		self.expression = wasm_disas.Expression(off, file_interface)
+		self.end = self.expression.end
+
+	def pretty_print(self):
+		print('globalol')
+
+class SectionGlobal(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
+		self.globals = []
+		global_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
+		off = self.data_start + consumed
+		for i in range(global_count):
+			self.globals.append(Global(off, file_interface))
+			off = self.globals[-1].end
+		self.end = off
+
+	def __repr__(self):
+		return 'SectionGlobal'
+
+	def pretty_print(self):
+		print('Global Section')
+		for glob in self.globals:
+			print('  ', end='')
+			glob.pretty_print()
+
+
+class ExportDesriptor():
 	index_type_lookup = {
 		0: 'function',
 		1: 'table',
@@ -119,6 +386,7 @@ class WASMExportDesriptor():
 	}
 
 	def __init__(self, start, file_interface):
+		self.start = start
 		off = start
 		type_id = ord(file_interface.read(off, 1))
 		if type_id not in self.index_type_lookup:
@@ -131,112 +399,145 @@ class WASMExportDesriptor():
 
 		self.end = off
 
-class WASMExport():
+class Export():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
 		name, consumed = nameParse(off, file_interface)
 		off += consumed
-		self.export_descriptor = WASMExportDesriptor(off, file_interface)
+		self.export_descriptor = ExportDesriptor(off, file_interface)
 		self.end = self.export_descriptor.end
 
-class WASMSectionExport(WASMSection):
+class SectionExport(Section):
 	def __init__(self, start, file_interface):
-		WASMSection.__init__(self, start, file_interface)
+		Section.__init__(self, start, file_interface)
 		self.exports = []
 
 		export_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		off = self.data_start + consumed
 		for i in range(export_count):
-			export = WASMExport(off, file_interface)
+			export = Export(off, file_interface)
 			self.exports.append(export)
 			off = export.end
+		self.end = off
 
 	def __repr__(self):
-		return 'WASMSectionExport'
+		return 'SectionExport'
 
-class WASMLocal():
+class SectionStart(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
+		off = self.data_start
+		self.function_index = wasm_disas.Index(off, file_interface)
+		self.end = self.function_index.end
+
+	def __repr__(self):
+		return 'SectionStart'
+
+class Element():
 	def __init__(self, start, file_interface):
 		self.start = start
-		off = self.start
-		self.count, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		off = start
+		self.table_index = wasm_disas.Index(off, file_interface)
+		off = self.table_index.end
+
+		self.expression = wasm_disas.Expression(off, file_interface)
+		off = self.expression.end
+
+		function_index_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
 		off += consumed
-		self.val_type = WASMValType(off, file_interface)
-		self.end = self.val_type.end
 
-class WASMFunction():
-	def __init__(self, start, size, file_interface):
-		self.start = start
-		self.size = size
-		self.locals = []
-		off = self.start 
-		local_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
-		off += consumed
-		for i in range(local_count):
-			local = WASMLocal(off,file_interface)
-			self.locals.append(local)
-			off = local.end
-		self.end = self.start + self.size
-		self.expression = wasm_disas.WASMExpression(off, file_interface)
-		if self.expression.end != self.end - 1:
-			raise WASMError('end of expression not at expected offset')
-
-		b = ord(file_interface.read(self.expression.end, 1))
-		if b != 0x0b:
-			raise WASMError('expression ended with 0x%x' % b)
+		self.function_indices = []
+		for i in range(function_index_count):
+			self.function_indices.append(wasm_disas.Index(off, file_interface))
+			off = self.function_indices[-1].end
+		self.end = off
 
 
-class WASMInstruction():
+class SectionElement(Section):
 	def __init__(self, start, file_interface):
-		# 01 04 00 41 2a 0b
-		opcode = file_interface.read(start, 1)
-		self.insn = self.switch[opcode]
+		Section.__init__(self, start, file_interface)
+		off = self.data_start
+		self.elements = []
+		element_count, consumed = wasm_disas.uleb128Parse(off, file_interface)
+		off += consumed
+		for i in range(element_count):
+			self.elements.append(Element(off, file_interface))
+			off = self.elements[-1].end
+		self.end = off
 
-class WASMCode():
+	def __repr__(self):
+		return 'SectionElement'
+
+class Code():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
 		self.size, consumed = wasm_disas.uleb128Parse(start, file_interface)
 		off += consumed
-		self.function = WASMFunction(off, self.size, file_interface)
+		self.function = Function(off, self.size, file_interface)
 		self.end = self.function.end
 
-class WASMSectionCode(WASMSection):
+class SectionCode(Section):
 	def __init__(self, start, file_interface):
-		WASMSection.__init__(self, start, file_interface)
+		Section.__init__(self, start, file_interface)
 		self.codes = []
 
 		code_count, consumed = wasm_disas.uleb128Parse(self.data_start, file_interface)
 		off = self.data_start + consumed
 		for i in range(code_count):
-			code = WASMCode(off, file_interface)
+			code = Code(off, file_interface)
 			self.codes.append(code)
 			off = code.end
+		self.end = off
 
 	def __repr__(self):
-		return 'WASMSectionCode'
+		return 'SectionCode'
 
-class WASMSectionTemplate(WASMSection):
+class Data():
 	def __init__(self, start, file_interface):
-		WASMSection.__init__(self, start, file_interface)
+		self.start = start
+		off = self.start
+		self.memory_index = Index(off, file_interface)
+		off = self.memory_index.end
+		self.expression = Expression(off, file_interface)
+		off = self.expression.end
+		byte_count, consumed = uleb128Parse(off, file_interface)
+		off += consumed
+		self.bytes = []
+		for i in range(byte_count):
+			self.bytes.append(file_interface.read(off, 1))
+			off += 1
+		self.end = off
+
+class SectionData(Section):
+	def __init__(self, start, file_interface):
+		Section.__init__(self, start, file_interface)
+		off = self.data_start
+		data_count, consumed = uleb128Parse(off, file_interface)
+		off += consumed
+		self.data = []
+		for i in range(data_count):
+			self.data.append(Data(off, file_interface))
+			off = self.data[-1].end
 
 	def __repr__(self):
-		return 'WASMSectionTemplate'
+		return 'SectionData'
 
-class WASMFile():
+class File():
 	section_type_by_id = {
-		0: WASMSectionCustom,
-		1: WASMSectionType,
-		# 2: WASMSectionImport,
-		3: WASMSectionFunction,
-		# 4: WASMSectionTable,
-		# 5: WASMSectionMemory,
-		# 6: WASMSectionGlobal,
-		7: WASMSectionExport,
-		# 8: WASMSectionStart,
-		# 9: WASMSectionElement,
-		10: WASMSectionCode,
-		# 11: WASMSectionData,
+		0: SectionCustom,
+		1: SectionType,
+		2: SectionImport,
+		3: SectionFunction,
+		4: SectionTable,
+		5: SectionMemory,
+		6: SectionGlobal,
+		7: SectionExport,
+		8: SectionStart,
+		9: SectionElement,
+		10: SectionCode,
+		# 11: SectionData,
 	}
 
 	def __init__(self, file_interface, process=True):
@@ -271,11 +572,13 @@ class WASMFile():
 			if section_id in self.section_type_by_id:
 				section_type = self.section_type_by_id[section_id]
 			else:
-				section_type = WASMSection
+				section_type = Section
 
 			section = section_type(start, self.raw)
 			self.sections.append(section)
 			off = section.data_start + section.data_size
+			if self.sections[-1].end != off:
+				raise WASMError('bad ending for section %s' % self.sections[-1])
 
 def main():
 	if len(sys.argv) < 2:
@@ -285,14 +588,9 @@ def main():
 	with open(sys.argv[1], 'rb+') as f:
 		file_interface = FileInterface(f.read())
 
-	wasm = WASMFile(file_interface)
-	print(wasm.sections)
+	wasm = File(file_interface)
 	for section in wasm.sections:
-		if type(section) == WASMSectionCode:
-			for code in section.codes:
-				print(code.function.expression.raw.hex())
-				print(code.function.expression)
-				print()
+		section.pretty_print()
 
 if __name__ == '__main__':
 	main()
