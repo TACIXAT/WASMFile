@@ -2,18 +2,18 @@
 # Author: TACIXAT
 import sys
 from wasm_classes import File, FileInterface
+import argparse
 
 def main():
-	if len(sys.argv) < 2:
-		print('USAGE: %s file.wasm' % sys.argv[0])
-		return 1
+	parser = argparse.ArgumentParser(description='Dump file information for WASM binary files.')
+	parser.add_argument('--file', metavar='file.wasm', type=str, help='wasm file to be dumped', required=True)
+	args = parser.parse_args()
 
-	with open(sys.argv[1], 'rb+') as f:
+	with open(args.file, 'rb+') as f:
 		file_interface = FileInterface(f.read())
 
 	wasm = File(file_interface)
-	for section in wasm.sections:
-		section.pretty_print()
+	wasm.pretty_print()
 
 if __name__ == '__main__':
 	main()

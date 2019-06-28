@@ -655,4 +655,13 @@ class File():
 			if self.sections[-1].end != off:
 				raise WASMError('bad ending for section %s' % self.sections[-1])
 
+	def pretty_print(self, indent=0):
+		for section in self.sections:
+			section.pretty_print(indent)
+
+	def bin(self):
+		out = b'\x00asm\x01\x00\x00\x00'
+		for section in self.sections:
+			b += section.bin()
+
 # TODO: add a vector type? would clean up code
