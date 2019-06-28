@@ -84,8 +84,8 @@ class FunctionType():
 			off = value_type.end
 		self.end = off
 
-	def pretty_print(self):
-		print(' '*2 + 'func ', end='')
+	def pretty_print(self, indent=0):
+		print(' '*indent + 'func ', end='')
 		if not len(self.param_types) and not len(self.result_types):
 			print('(empty) ', end='')
 
@@ -113,10 +113,11 @@ class SectionType(Section):
 	def __repr__(self):
 		return 'SectionType'
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Type Section (0x%x - 0x%x)' % (self.start, self.end))
 		for proto in self.function_prototypes:
-			proto.pretty_print()
+			proto.pretty_print(indent+2)
 
 class Limits():
 	def __init__(self, start, file_interface):
@@ -153,7 +154,8 @@ class TableType():
 		self.limits = Limits(off, file_interface)
 		self.end = self.limits.end
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('TableType(%s %s)' % (self.element_type, self.limits))
 
 class MemoryType():
@@ -162,7 +164,8 @@ class MemoryType():
 		self.limits = Limits(start, file_interface)
 		self.end = self.limits.end
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('MemType(%s)' % self.limits)
 
 class GlobalType():
@@ -180,7 +183,8 @@ class GlobalType():
 		self.mutability = self.mutability_lookup[self.mutability_id]
 		self.end = off
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('GlobalType(%s %s)' % (self.value_type, self.mutability))
 
 class ImportDescriptor():
@@ -205,9 +209,9 @@ class ImportDescriptor():
 			raise WASMError('invalid type id')
 		self.end = off
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
 		if self.type_id == 0x00:
-			print('type %s' % self.type_index)
+			print('Type %s' % self.type_index)
 		elif self.type_id == 0x01:
 			self.table_type.pretty_print()
 		elif self.type_id == 0x02:
@@ -227,8 +231,8 @@ class Import():
 		self.import_descriptor = ImportDescriptor(off, file_interface)
 		self.end = self.import_descriptor.end
 
-	def pretty_print(self):
-		print('  %s.%s ' % (self.import_module.decode('utf8'), self.import_name.decode('utf8')), end='')
+	def pretty_print(self, indent=0):
+		print(' '*indent + '%s.%s ' % (self.import_module.decode('utf8'), self.import_name.decode('utf8')), end='')
 		self.import_descriptor.pretty_print()
 
 class SectionImport(Section):
@@ -247,10 +251,11 @@ class SectionImport(Section):
 	def __repr__(self):
 		return 'SectionImport'
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Import Section (0x%x - 0x%x)' % (self.start, self.end))
 		for imp in self.imports:
-			imp.pretty_print()
+			imp.pretty_print(indent+2)
 
 
 class SectionFunction(Section):
@@ -268,10 +273,12 @@ class SectionFunction(Section):
 	def __repr__(self):
 		return 'SectionFunction'
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Function Section')
 		for idx in range(len(self.indices)):
-			print('  fn %d: type %s' % (idx, self.indices[idx]))
+			print(' '*(indent+2), end='')
+			print('Function %d: Type %s' % (idx, self.indices[idx]))
 
 
 class Local():
@@ -282,6 +289,10 @@ class Local():
 		off += consumed
 		self.value_type = ValueType(off, file_interface)
 		self.end = self.value_type.end
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print("Locals %d %s" % (self.count, self.value_type))
 
 class Function():
 	def __init__(self, start, size, file_interface):
@@ -304,6 +315,14 @@ class Function():
 		if b != 0x0b:
 			raise WASMError('expression ended with 0x%x' % b)
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Function')
+		for local in self.locals:
+			local.pretty_print(indent+2)
+
+		self.expression.pretty_print(indent+2)
+
 class SectionTable(Section):
 	def __init__(self, start, file_interface):
 		Section.__init__(self, start, file_interface)
@@ -318,11 +337,11 @@ class SectionTable(Section):
 	def __repr__(self):
 		return 'SectionTable'
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Table Section')
 		for table in self.tables:
-			print('  ', end='')
-			table.pretty_print()
+			table.pretty_print(indent+2)
 
 class SectionMemory(Section):
 	def __init__(self, start, file_interface):
@@ -338,11 +357,11 @@ class SectionMemory(Section):
 	def __repr__(self):
 		return 'SectionMemory'
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Memory Section')
 		for mem in self.memories:
-			print('  ', end='')
-			mem.pretty_print()
+			mem.pretty_print(indent+2)
 
 class Global():
 	def __init__(self, start, file_interface):
@@ -353,8 +372,9 @@ class Global():
 		self.expression = wasm_disas.Expression(off, file_interface)
 		self.end = self.expression.end
 
-	def pretty_print(self):
-		print('globalol')
+	def pretty_print(self, indent=0):
+		self.global_type.pretty_print(indent)
+		self.expression.pretty_print(indent)
 
 class SectionGlobal(Section):
 	def __init__(self, start, file_interface):
@@ -370,12 +390,11 @@ class SectionGlobal(Section):
 	def __repr__(self):
 		return 'SectionGlobal'
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Global Section')
 		for glob in self.globals:
-			print('  ', end='')
-			glob.pretty_print()
-
+			glob.pretty_print(indent+2)
 
 class ExportDesriptor():
 	index_type_lookup = {
@@ -388,10 +407,10 @@ class ExportDesriptor():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = start
-		type_id = ord(file_interface.read(off, 1))
-		if type_id not in self.index_type_lookup:
-			raise WASMError('invalid export type %02x at %x' % (type_id, off))
-		self.type = self.index_type_lookup[type_id]
+		self.type_id = ord(file_interface.read(off, 1))
+		if self.type_id not in self.index_type_lookup:
+			raise WASMError('invalid export type %02x at %x' % (self.type_id, off))
+		self.type = self.index_type_lookup[self.type_id]
 		off += 1
 
 		self.index, consumed = wasm_disas.uleb128Parse(off, file_interface)
@@ -399,14 +418,24 @@ class ExportDesriptor():
 
 		self.end = off
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print(self.type, self.index)
+
+
 class Export():
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
-		name, consumed = nameParse(off, file_interface)
+		self.name, consumed = nameParse(off, file_interface)
 		off += consumed
 		self.export_descriptor = ExportDesriptor(off, file_interface)
 		self.end = self.export_descriptor.end
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Export %s' % self.name.decode('utf8'))
+		self.export_descriptor.pretty_print(indent+2)
 
 class SectionExport(Section):
 	def __init__(self, start, file_interface):
@@ -423,6 +452,12 @@ class SectionExport(Section):
 
 	def __repr__(self):
 		return 'SectionExport'
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Export Section')
+		for export in self.exports:
+			export.pretty_print(indent+2)
 
 class SectionStart(Section):
 	def __init__(self, start, file_interface):
@@ -453,6 +488,16 @@ class Element():
 			off = self.function_indices[-1].end
 		self.end = off
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Table ', end='')
+		self.table_index.pretty_print()
+		self.expression.pretty_print(indent)
+		for func_idx in self.function_indices:
+			print(' '*indent, end='')
+			print('Function ', end='')
+			func_idx.pretty_print()
+
 
 class SectionElement(Section):
 	def __init__(self, start, file_interface):
@@ -469,6 +514,13 @@ class SectionElement(Section):
 	def __repr__(self):
 		return 'SectionElement'
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Element Section')
+		for element in self.elements:
+			element.pretty_print(indent+2)
+
+
 class Code():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -477,6 +529,9 @@ class Code():
 		off += consumed
 		self.function = Function(off, self.size, file_interface)
 		self.end = self.function.end
+
+	def pretty_print(self, indent=0):
+		self.function.pretty_print(indent)
 
 class SectionCode(Section):
 	def __init__(self, start, file_interface):
@@ -493,6 +548,12 @@ class SectionCode(Section):
 
 	def __repr__(self):
 		return 'SectionCode'
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('Code Section')
+		for code in self.codes:
+			code.pretty_print(indent+2)
 
 class Data():
 	def __init__(self, start, file_interface):
@@ -580,6 +641,8 @@ class File():
 			if self.sections[-1].end != off:
 				raise WASMError('bad ending for section %s' % self.sections[-1])
 
+# TODO: add a vector type? would clean up code
+
 def main():
 	if len(sys.argv) < 2:
 		print('USAGE: %s file.wasm' % sys.argv[0])
@@ -589,6 +652,7 @@ def main():
 		file_interface = FileInterface(f.read())
 
 	wasm = File(file_interface)
+	print(wasm.sections)
 	for section in wasm.sections:
 		section.pretty_print()
 

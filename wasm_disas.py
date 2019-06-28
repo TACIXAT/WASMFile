@@ -47,6 +47,9 @@ class Instruction():
 		self.opcode = ord(file_interface.read(start, 1))
 		self.end = start + 1
 
+	def pretty_print(self, indent=0):
+		print(' '*indent + str(self))
+
 class Memarg():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -135,6 +138,13 @@ class Block(Instruction):
 	def __repr__(self):
 		return '\n'.join(['block', str(self.block_instructions), 'end'])
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('block')
+		self.block_instructions.pretty_print(indent+2)
+		print(' '*indent, end='')
+		print('end')
+
 class Loop(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
@@ -151,7 +161,14 @@ class Loop(Instruction):
 		self.end = off
 
 	def __repr__(self):
-		return '\n'.join(['block', str(self.loop_instructions), 'end'])
+		return '\n'.join(['loop', str(self.loop_instructions), 'end'])
+
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('loop')
+		self.loop_instructions.pretty_print(indent+2)
+		print(' '*indent, end='')
+		print('end')
 
 class If(Instruction):
 	def __init__(self, start, file_interface):
@@ -184,13 +201,24 @@ class If(Instruction):
 			output += '\nelse\n%s' % self.else_instructions
 		return output
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('if')
+		self.if_instructions.pretty_print(indent+2)
+		if self.else_instructions:
+			print(' '*indent, end='')
+			print('else')
+			self.else_instructions.pretty_print(indent+2)
+		print(' '*indent, end='')
+		print('end')
+
 class Branch(InstructionBranch):
 	def __repr__(self):
-		return 'br'
+		return 'br %s' % self.label_index
 
 class BranchIf(InstructionBranch):
 	def __repr__(self):
-		return 'br_if'
+		return 'br_if %s' % self.label_index
 
 class BranchTable(Instruction):
 	def __init__(self, start, file_interface):
@@ -1113,3 +1141,7 @@ class Expression():
 
 	def __repr__(self):
 		return '\n'.join(map(str, self.instructions))
+
+	def pretty_print(self, indent=0):
+		for instr in self.instructions:
+			instr.pretty_print(indent)
