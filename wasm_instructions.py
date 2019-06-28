@@ -1,45 +1,24 @@
 import struct
-from wasm_file import WASMError, ValueType
+from wasm_utils import *
 
-def uleb128Parse(off, file_interface):
-	b = ord(file_interface.read(off, 1))
-	shift = 0
-	val = 0
-	while b & 0x80:
-		val |= (b & 0x7F) << shift
-		shift += 7
-		b = ord(file_interface.read(off+shift//7, 1))
+class ValueType():
+	value_type_lookup = {
+		0x7F: 'i32',
+		0x7E: 'i64',
+		0x7D: 'f32',
+		0x7C: 'f64',
+	}
 
-	val |= (b & 0x7F) << shift
-	shift += 7
+	def __init__(self, start, file_interface):
+		self.start = start
+		self.type_id = ord(file_interface.read(self.start, 1))
+		if self.type_id not in self.value_type_lookup:
+			raise WASMError('invalid val type %02x at %x' % (self.type_id, off))
+		self.type = self.value_type_lookup[self.type_id]
+		self.end = self.start + 1
 
-	return val, shift // 7
-
-def sleb128Parse(off, file_interface):
-	b = ord(file_interface.read(off, 1))
-	shift = 0
-	val = 0
-	while b & 0x80:
-		val |= (b & 0x7F) << shift
-		shift += 7
-		b = ord(file_interface.read(off+shift//7, 1))
-	val |= (b & 0x7F) << shift
-	shift += 7
-	if b & 0x40:
-		mask = (1 << shift) - 1
-		val = val ^ mask
-		val = -val - 1
-	return val, shift//7
-
-def f32Parse(off, file_interface):
-	f32_bytes = file_interface.read(off, 4)
-	f32, = struct.unpack('<f', f32_bytes)
-	return f32, 4
-
-def f64Parse(off, file_interface):
-	f64_bytes = file_interface.read(off, 8)
-	f64, = struct.unpack('<d', f64_bytes)
-	return f64, 8
+	def __repr__(self):
+		return self.type
 
 class Instruction():
 	def __init__(self, start, file_interface):
