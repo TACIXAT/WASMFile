@@ -65,7 +65,7 @@
     br_if 0
     end
   )
-  (; 0x0e ;) (func (export "br_table") i32.const 1 br_table 0)
+  (; 0x0e ;) (func (export "br_table") i32.const 123 br_table 0)
   (; 0x0f ;) (func (export "return") return)
   (; 0x10 ;) (func (export "call") call $empty)
   (; 0x11 ;) (func (export "call_indirect") i32.const 1 call_indirect (type $empty))

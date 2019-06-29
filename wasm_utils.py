@@ -14,6 +14,33 @@ def uleb128Parse(off, file_interface):
 
 	return val, shift // 7
 
+def sleb128Dump(value):
+    data = []
+    while True:
+        byte = value & 0x7F
+        value >>= 7  
+        sign_bit = bool(byte & 0x40)
+
+        if (value == 0 and not sign_bit) or (value == -1 and sign_bit):
+            data.append(byte)
+            break
+        else:
+            data.append(byte | 0x80)
+    return bytes(data)
+
+def uleb128Dump(value):
+    data = []  
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value == 0:
+            # We are done!
+            data.append(byte)
+            break
+        else:
+            data.append(byte | 0x80) 
+    return bytes(data)
+
 def sleb128Parse(off, file_interface):
 	b = ord(file_interface.read(off, 1))
 	shift = 0
@@ -39,3 +66,15 @@ def f64Parse(off, file_interface):
 	f64_bytes = file_interface.read(off, 8)
 	f64, = struct.unpack('<d', f64_bytes)
 	return f64, 8
+
+def f32Dump(value):
+	return struct.pack('<f', value)
+
+def f64Dump(value):
+	return struct.pack('<d', value)
+
+def makeSectionBytes(section_id, payload):
+	b = struct.pack('b', section_id)
+	b += uleb128Dump(len(payload))
+	b += payload
+	return b

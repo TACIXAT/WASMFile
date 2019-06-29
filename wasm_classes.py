@@ -12,9 +12,6 @@ class FileInterface():
 	def __len__(self):
 		return len(self.contents)
 
-class WASMError(Exception):
-	pass
-
 class Section():
 	def __init__(self, start, file_interface):
 		self.section_id = ord(file_interface.read(start, 1))
@@ -289,6 +286,11 @@ class Local():
 		print(' '*indent, end='')
 		print("Locals %d %s" % (self.count, self.value_type))
 
+	def bin(self):
+		b = uleb128Dump(self.count)
+		b += self.value_type.bin()
+		return b
+
 class Function():
 	def __init__(self, start, size, file_interface):
 		self.start = start
@@ -317,6 +319,13 @@ class Function():
 			local.pretty_print(indent+2)
 
 		self.expression.pretty_print(indent+2)
+
+	def bin(self):
+		b = uleb128Dump(len(self.locals))
+		for local in self.locals:
+			b += local.bin()
+		b += self.expression.bin()
+		return b
 
 class SectionTable(Section):
 	def __init__(self, start, file_interface):
@@ -521,7 +530,6 @@ class SectionElement(Section):
 		for element in self.elements:
 			element.pretty_print(indent+2)
 
-
 class Code():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -533,6 +541,11 @@ class Code():
 
 	def pretty_print(self, indent=0):
 		self.function.pretty_print(indent)
+
+	def bin(self):
+		b = uleb128Dump(self.size)
+		b += self.function.bin()
+		return b
 
 class SectionCode(Section):
 	def __init__(self, start, file_interface):
@@ -556,6 +569,13 @@ class SectionCode(Section):
 		for code in self.codes:
 			code.pretty_print(indent+2)
 
+	def bin(self):
+		data_bytes = uleb128Dump(len(self.codes))
+		for code in self.codes:
+			data_bytes += code.bin()
+		return makeSectionBytes(self.section_id, data_bytes)
+
+
 class Data():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -578,6 +598,14 @@ class Data():
 		self.expression.pretty_print(indent+2)
 		print_bytes(self.bytes, indent+2)
 
+	def bin(self):
+		b = bytes()
+		b += self.memory_index.bin()
+		b += self.expression.bin()
+		b += uleb128Dump(len(self.bytes))
+		b += self.bytes
+		return b
+
 class SectionData(Section):
 	def __init__(self, start, file_interface):
 		Section.__init__(self, start, file_interface)
@@ -599,6 +627,13 @@ class SectionData(Section):
 		print('Data Section')
 		for datum in self.data:
 			datum.pretty_print(indent+2)
+
+	def bin(self):
+		data_bytes = bytes()
+		data_bytes += uleb128Dump(len(self.data))
+		for datum in self.data:
+			data_bytes += datum.bin()
+		return makeSectionBytes(self.section_id, data_bytes)
 
 class File():
 	section_type_by_id = {
@@ -660,8 +695,12 @@ class File():
 			section.pretty_print(indent)
 
 	def bin(self):
-		out = b'\x00asm\x01\x00\x00\x00'
+		b = b'\x00asm\x01\x00\x00\x00'
 		for section in self.sections:
-			b += section.bin()
+			sections = [SectionData, SectionCode]
+			if type(section) in sections:
+				b += section.bin()
+				print(section.bin().hex())
+		print(b.hex())
 
 # TODO: add a vector type? would clean up code

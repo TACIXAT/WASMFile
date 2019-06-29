@@ -14,6 +14,7 @@ def main():
 
 	wasm = File(file_interface)
 	wasm.pretty_print()
+	wasm.bin()
 
 if __name__ == '__main__':
 	main()

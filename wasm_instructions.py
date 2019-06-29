@@ -1,6 +1,9 @@
 import struct
 from wasm_utils import *
 
+class WASMError(Exception):
+	pass
+
 class ValueType():
 	value_type_lookup = {
 		0x7F: 'i32',
@@ -13,12 +16,15 @@ class ValueType():
 		self.start = start
 		self.type_id = ord(file_interface.read(self.start, 1))
 		if self.type_id not in self.value_type_lookup:
-			raise WASMError('invalid val type %02x at %x' % (self.type_id, off))
+			raise WASMError('invalid val type %02x at %x' % (self.type_id, self.start))
 		self.type = self.value_type_lookup[self.type_id]
 		self.end = self.start + 1
 
 	def __repr__(self):
 		return self.type
+
+	def bin(self):
+		return struct.pack('B', self.type_id)
 
 class Instruction():
 	def __init__(self, start, file_interface):
@@ -28,6 +34,9 @@ class Instruction():
 
 	def pretty_print(self, indent=0):
 		print(' '*indent + str(self))
+
+	def bin(self):
+		return struct.pack('B', self.opcode)
 
 class Memarg():
 	def __init__(self, start, file_interface):
@@ -41,12 +50,18 @@ class Memarg():
 	def __repr__(self):
 		return 'o:%d, a:%d' % (self.offset, self.alignment)
 
+	def bin(self):
+		return uleb128Dump(self.alignment) + uleb128Dump(self.offset) 
+
 class InstructionMemory(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
 		off = start+1
 		self.memarg = Memarg(off, file_interface)
 		self.end = self.memarg.end
+
+	def bin(self):
+		return struct.pack('B', self.opcode) + self.memarg.bin()
 
 class Index():
 	def __init__(self, start, file_interface):
@@ -57,8 +72,12 @@ class Index():
 	def __repr__(self):
 		return '%d' % self.index
 
-	def pretty_print(self):
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
 		print('Index(%d)' % self.index)
+
+	def bin(self):
+		return uleb128Dump(self.index)
 
 class InstructionLocal(Instruction):
 	def __init__(self, start, file_interface):
@@ -67,6 +86,9 @@ class InstructionLocal(Instruction):
 		self.local_index = Index(off, file_interface)
 		self.end = self.local_index.end
 
+	def bin(self):
+		return struct.pack('B', self.opcode) + self.local_index.bin()
+
 class InstructionGlobal(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
@@ -74,12 +96,18 @@ class InstructionGlobal(Instruction):
 		self.global_index = Index(off, file_interface)
 		self.end = self.global_index.end
 
+	def bin(self):
+		return struct.pack('B', self.opcode) + self.global_index.bin()
+
 class InstructionBranch(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
 		off = start + 1
 		self.label_index = Index(off, file_interface)
 		self.end = self.label_index.end
+
+	def bin(self):
+		return struct.pack('B', self.opcode) + self.label_index.bin()
 
 class Unreachable(Instruction):
 	def __repr__(self):
@@ -98,6 +126,11 @@ class Blocktype():
 		else:
 			self.value_type = ValueType(self.start, file_interface)
 		self.end = self.start + 1
+
+	def bin(self):
+		if not self.value_type:
+			return b'\x40'
+		return self.value_type.bin()
 
 class Block(Instruction):
 	def __init__(self, start, file_interface):
@@ -124,6 +157,12 @@ class Block(Instruction):
 		print(' '*indent, end='')
 		print('end')
 
+	def bin(self):
+		b = struct.pack('B', self.opcode)
+		b += self.block_type.bin()
+		b += self.block_instructions.bin()
+		return b
+
 class Loop(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
@@ -148,6 +187,12 @@ class Loop(Instruction):
 		self.loop_instructions.pretty_print(indent+2)
 		print(' '*indent, end='')
 		print('end')
+
+	def bin(self):
+		b = struct.pack('B', self.opcode)
+		b += self.block_type.bin()
+		b += self.loop_instructions.bin()
+		return b
 
 class If(Instruction):
 	def __init__(self, start, file_interface):
@@ -191,6 +236,14 @@ class If(Instruction):
 		print(' '*indent, end='')
 		print('end')
 
+	def bin(self):
+		b = struct.pack('B', self.opcode)
+		b += self.block_type.bin()
+		b += self.if_instructions.bin()
+		if self.else_instructions:
+			b += self.else_instructions.bin()
+		return b
+
 class Branch(InstructionBranch):
 	def __repr__(self):
 		return 'br %s' % self.label_index
@@ -215,6 +268,23 @@ class BranchTable(Instruction):
 	def __repr__(self):
 		return 'br_table'
 
+	def pretty_print(self, indent=0):
+		print(' '*indent, end='')
+		print('br_table')
+		for label in self.labels:
+			label.pretty_print(indent+2)
+		print(' '*(indent+2), end='')
+		print('default ', end='')
+		self.default_label.pretty_print()
+
+	def bin(self):
+		b = struct.pack('B', self.opcode)
+		b += uleb128Dump(len(self.labels))
+		for label in self.labels:
+			b += label.bin()
+		b += self.default_label.bin()
+		return b
+
 class Call(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
@@ -224,6 +294,9 @@ class Call(Instruction):
 
 	def __repr__(self):
 		return 'call'
+
+	def bin(self):
+		return struct.pack('B', self.opcode) + self.function_index.bin()
 
 class CallIndirect(Instruction):
 	def __init__(self, start, file_interface):
@@ -237,6 +310,9 @@ class CallIndirect(Instruction):
 
 	def __repr__(self):
 		return 'call_indirect'
+
+	def bin(self):
+		return struct.pack('B', self.opcode) + self.type_index.bin() + b'\x00'
 
 class End(Instruction):
 	def __repr__(self):
@@ -366,7 +442,7 @@ class I64Store32(InstructionMemory):
 	def __repr__(self):
 		return 'i64.store32 ' + str(self.memarg)
 
-class MemorySize(Instruction):
+class InstructionMemoryLong(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
 		b = file_interface.read(start+1, 1)
@@ -374,37 +450,32 @@ class MemorySize(Instruction):
 			raise WASMError('second byte not null')
 		self.end = start + 2
 
+	def bin(self):
+		return struct.pack('B', self.opcode) + b'\x00'
+
+class MemorySize(InstructionMemoryLong):
 	def __repr__(self):
 		return 'memory.size'
 
-class MemoryGrow(Instruction):
-	def __init__(self, start, file_interface):
-		Instruction.__init__(self, start, file_interface)
-		b = file_interface.read(start+1, 1)
-		if b != b'\x00':
-			raise WASMError('second byte not null')
-		self.end = start + 2
-
+class MemoryGrow(InstructionMemoryLong):
 	def __repr__(self):
 		return 'memory.grow'
 
-class I32Const(Instruction):
+class InstructionIConst(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
 		off = start+1
 		self.constant, consumed = sleb128Parse(off, file_interface)
 		self.end = off + consumed
 
+	def bin(self):
+		return struct.pack('B', self.opcode) + sleb128Dump(self.constant)
+
+class I32Const(InstructionIConst):
 	def __repr__(self):
 		return 'i32.const %d' % self.constant
 
-class I64Const(Instruction):
-	def __init__(self, start, file_interface):
-		Instruction.__init__(self, start, file_interface)
-		off = start+1
-		self.constant, consumed = sleb128Parse(off, file_interface)
-		self.end = off + consumed
-
+class I64Const(InstructionIConst):
 	def __repr__(self):
 		return 'i64.const %f' % self.constant
 
@@ -418,6 +489,9 @@ class F32Const(Instruction):
 	def __repr__(self):
 		return 'f32.const %f' % self.constant
 
+	def bin(self):
+		return struct.pack('B', self.opcode) + f32Dump(self.constant)
+
 class F64Const(Instruction):
 	def __init__(self, start, file_interface):
 		Instruction.__init__(self, start, file_interface)
@@ -427,6 +501,9 @@ class F64Const(Instruction):
 
 	def __repr__(self):
 		return 'f64.const %d' % self.constant
+
+	def bin(self):
+		return struct.pack('B', self.opcode) + f64Dump(self.constant)
 
 class I32Eqz(Instruction): 
 	def __repr__(self):
@@ -1115,6 +1192,7 @@ class Expression():
 			self.instructions.append(instruction)
 			off = instruction.end
 
+		self.end_byte = file_interface.read(off, 1)
 		self.end = off+1 # account of 0x05 and 0x0b
 		self.raw = file_interface.read(start, self.end-start)
 
@@ -1124,3 +1202,10 @@ class Expression():
 	def pretty_print(self, indent=0):
 		for instr in self.instructions:
 			instr.pretty_print(indent)
+
+	def bin(self):
+		b = bytes()
+		for instr in self.instructions:
+			b += instr.bin()
+		b += self.end_byte
+		return b
