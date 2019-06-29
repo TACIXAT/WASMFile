@@ -78,3 +78,11 @@ def makeSectionBytes(section_id, payload):
 	b += uleb128Dump(len(payload))
 	b += payload
 	return b
+
+def nameParse(off, file_interface):
+	name_len, consumed = uleb128Parse(off, file_interface)
+	name = file_interface.read(off+consumed, name_len)
+	return name, consumed + name_len
+
+def nameDump(name):
+	return uleb128Dump(len(name)) + name

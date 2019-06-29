@@ -22,11 +22,6 @@ class Section():
 	def __repr__(self):
 		return 'Section(%s)' % self.section_id
 
-def nameParse(off, file_interface):
-	name_len, consumed = uleb128Parse(off, file_interface)
-	name = file_interface.read(off+consumed, name_len)
-	return name, consumed + name_len
-
 class SectionCustom(Section):
 	def __init__(self, start, file_interface):
 		Section.__init__(self, start, file_interface)
@@ -90,6 +85,7 @@ class FunctionType():
 		print()
 
 
+# This name is kinda bad near MemoryType and those classes
 class SectionType(Section):
 	def __init__(self, start, file_interface):
 		Section.__init__(self, start, file_interface)
@@ -133,6 +129,12 @@ class Limits():
 			return 'min %d,  max %d' % (self.minimum, self.maximum)
 		return 'min %d, max inf' % self.minimum
 
+	def bin(self):
+		b = struct.pack('B', self.type_id)
+		b += uleb128Dump(self.minimum)
+		if self.type_id == 1:
+			b += uleb128Dump(self.maximum)
+		return b
 
 class TableType():
 	def __init__(self, start, file_interface):
@@ -150,6 +152,9 @@ class TableType():
 		print(' '*indent, end='')
 		print('TableType(%s %s)' % (self.element_type, self.limits))
 
+	def bin(self):
+		return struct.pack('B', self.element_type_id) + self.limits.bin()
+
 class MemoryType():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -160,11 +165,15 @@ class MemoryType():
 		print(' '*indent, end='')
 		print('MemType(%s)' % self.limits)
 
+	def bin(self):
+		return self.limits.bin()
+
 class GlobalType():
 	mutability_lookup = {
 		0x00: 'constant',
 		0x01: 'variable',
 	}
+
 	def __init__(self, start, file_interface):
 		self.start = start
 		off = self.start
@@ -178,6 +187,11 @@ class GlobalType():
 	def pretty_print(self, indent=0):
 		print(' '*indent, end='')
 		print('GlobalType(%s %s)' % (self.value_type, self.mutability))
+
+	def bin(self):
+		b = self.value_type.bin()
+		b += struct.pack('B', self.mutability_id)
+		return b
 
 class ImportDescriptor():
 	def __init__(self, start, file_interface):
@@ -367,6 +381,13 @@ class SectionMemory(Section):
 		for mem in self.memories:
 			mem.pretty_print(indent+2)
 
+	def bin(self):
+		payload = uleb128Dump(len(self.memories))
+		for memory in self.memories:
+			payload += memory.bin()
+		return makeSectionBytes(self.section_id, payload)
+
+
 class Global():
 	def __init__(self, start, file_interface):
 		self.start = start
@@ -379,6 +400,11 @@ class Global():
 	def pretty_print(self, indent=0):
 		self.global_type.pretty_print(indent)
 		self.expression.pretty_print(indent)
+
+	def bin(self):
+		b = self.global_type.bin()
+		b += self.expression.bin()
+		return b
 
 class SectionGlobal(Section):
 	def __init__(self, start, file_interface):
@@ -400,6 +426,13 @@ class SectionGlobal(Section):
 		for glob in self.globals:
 			glob.pretty_print(indent+2)
 
+	def bin(self):
+		payload = uleb128Dump(len(self.globals))
+		for glob in self.globals:
+			payload += glob.bin()
+		return makeSectionBytes(self.section_id, payload)
+
+
 class ExportDesriptor():
 	index_type_lookup = {
 		0: 'function',
@@ -417,8 +450,8 @@ class ExportDesriptor():
 		self.type = self.index_type_lookup[self.type_id]
 		off += 1
 
-		self.index, consumed = uleb128Parse(off, file_interface)
-		off += consumed
+		self.index = Index(off, file_interface)
+		off = self.index.end
 
 		self.end = off
 
@@ -426,6 +459,10 @@ class ExportDesriptor():
 		print(' '*indent, end='')
 		print(self.type, self.index)
 
+	def bin(self):
+		b = struct.pack('B', self.type_id)
+		b += self.index.bin()
+		return b
 
 class Export():
 	def __init__(self, start, file_interface):
@@ -440,6 +477,11 @@ class Export():
 		print(' '*indent, end='')
 		print('Export %s' % self.name.decode('utf8'))
 		self.export_descriptor.pretty_print(indent+2)
+
+	def bin(self):
+		b = nameDump(self.name)
+		b += self.export_descriptor.bin()
+		return b
 
 class SectionExport(Section):
 	def __init__(self, start, file_interface):
@@ -463,6 +505,12 @@ class SectionExport(Section):
 		for export in self.exports:
 			export.pretty_print(indent+2)
 
+	def bin(self):
+		payload = uleb128Dump(len(self.exports))
+		for export in self.exports:
+			payload += export.bin()
+		return makeSectionBytes(self.section_id, payload)
+
 class SectionStart(Section):
 	def __init__(self, start, file_interface):
 		Section.__init__(self, start, file_interface)
@@ -478,6 +526,9 @@ class SectionStart(Section):
 		print('Start Section')
 		print(' '*(indent+2), end='')
 		print('Function %s' % self.function_index)
+
+	def bin(self):
+		return makeSectionBytes(self.section_id, self.function_index.bin())
 
 class Element():
 	def __init__(self, start, file_interface):
@@ -508,6 +559,14 @@ class Element():
 			print('Function ', end='')
 			func_idx.pretty_print()
 
+	def bin(self):
+		b = self.table_index.bin()
+		b += self.expression.bin()
+		b += uleb128Dump(len(self.function_indices))
+		for idx in self.function_indices:
+			b += idx.bin()
+		return b
+
 
 class SectionElement(Section):
 	def __init__(self, start, file_interface):
@@ -529,6 +588,12 @@ class SectionElement(Section):
 		print('Element Section')
 		for element in self.elements:
 			element.pretty_print(indent+2)
+
+	def bin(self):
+		payload = uleb128Dump(len(self.elements))
+		for element in self.elements:
+			payload += element.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 class Code():
 	def __init__(self, start, file_interface):
@@ -570,10 +635,10 @@ class SectionCode(Section):
 			code.pretty_print(indent+2)
 
 	def bin(self):
-		data_bytes = uleb128Dump(len(self.codes))
+		payload = uleb128Dump(len(self.codes))
 		for code in self.codes:
-			data_bytes += code.bin()
-		return makeSectionBytes(self.section_id, data_bytes)
+			payload += code.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 
 class Data():
@@ -629,11 +694,11 @@ class SectionData(Section):
 			datum.pretty_print(indent+2)
 
 	def bin(self):
-		data_bytes = bytes()
-		data_bytes += uleb128Dump(len(self.data))
+		payload = bytes()
+		payload += uleb128Dump(len(self.data))
 		for datum in self.data:
-			data_bytes += datum.bin()
-		return makeSectionBytes(self.section_id, data_bytes)
+			payload += datum.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 class File():
 	section_type_by_id = {
@@ -697,10 +762,11 @@ class File():
 	def bin(self):
 		b = b'\x00asm\x01\x00\x00\x00'
 		for section in self.sections:
-			sections = [SectionData, SectionCode]
+			sections = [SectionMemory]
+			print(section, hasattr(section, 'bin'))
 			if type(section) in sections:
 				b += section.bin()
 				print(section.bin().hex())
-		print(b.hex())
+		# print(b.hex())
 
 # TODO: add a vector type? would clean up code
