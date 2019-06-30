@@ -86,3 +86,10 @@ def nameParse(off, file_interface):
 
 def nameDump(name):
 	return uleb128Dump(len(name)) + name
+
+def print_bytes(data, indent, width=8):
+	for idx in range(0, len(data), width):
+		print(' '*(indent), end='')
+		for b in data[idx:idx+width]:
+			print('%02x ' % b, end='')
+		print()

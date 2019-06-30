@@ -27,6 +27,8 @@ class ValueType():
 		return struct.pack('B', self.type_id)
 
 class Instruction():
+	annotations = []
+
 	def __init__(self, start, file_interface):
 		self.start = start
 		self.opcode = ord(file_interface.read(start, 1))
@@ -521,7 +523,7 @@ class I32LtS(Instruction):
 	def __repr__(self):
 		return 'i32.lt_s'
 
-class I32LtS(Instruction): 
+class I32LtU(Instruction): 
 	def __repr__(self):
 		return 'i32.lt_u'
 
@@ -529,7 +531,7 @@ class I32GtS(Instruction):
 	def __repr__(self):
 		return 'i32.gt_s'
 
-class I32GtS(Instruction): 
+class I32GtU(Instruction): 
 	def __repr__(self):
 		return 'i32.gt_u'
 
@@ -537,7 +539,7 @@ class I32LeS(Instruction):
 	def __repr__(self):
 		return 'i32.le_s'
 
-class I32LeS(Instruction): 
+class I32LeU(Instruction): 
 	def __repr__(self):
 		return 'i32.le_u'
 
@@ -545,7 +547,7 @@ class I32GeS(Instruction):
 	def __repr__(self):
 		return 'i32.ge_s'
 
-class I32GeS(Instruction): 
+class I32GeU(Instruction): 
 	def __repr__(self):
 		return 'i32.ge_u'
 
@@ -1051,13 +1053,13 @@ class Expression():
 		0x46: I32Eq,
 		0x47: I32Ne,
 		0x48: I32LtS,
-		0x49: I32LtS,
+		0x49: I32LtU,
 		0x4A: I32GtS,
-		0x4B: I32GtS,
+		0x4B: I32GtU,
 		0x4C: I32LeS,
-		0x4D: I32LeS,
+		0x4D: I32LeU,
 		0x4E: I32GeS,
-		0x4F: I32GeS,
+		0x4F: I32GeU,
 		0x50: I64Eqz,
 		0x51: I64Eq,
 		0x52: I64Ne,

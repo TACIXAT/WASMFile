@@ -36,13 +36,11 @@ class SectionCustom(Section):
 		print(' '*(indent+2), end='')
 		print(self.name.decode('utf8'))
 		print_bytes(self.custom_data, indent+4)
-		
-def print_bytes(data, indent, width=8):
-	for idx in range(0, len(data), width):
-		print(' '*(indent), end='')
-		for b in data[idx:idx+width]:
-			print('%02x ' % b, end='')
-		print()
+
+	def bin(self):
+		payload = nameDump(self.name)
+		payload += self.custom_data
+		return makeSectionBytes(self.section_id, payload)
 
 class FunctionType():
 	def __init__(self, start, file_interface):
@@ -84,6 +82,16 @@ class FunctionType():
 
 		print()
 
+	def bin(self):
+		b = b'\x60'
+		b += uleb128Dump(len(self.param_types))
+		for param in self.param_types:
+			b += param.bin()
+
+		b += uleb128Dump(len(self.result_types))
+		for result in self.result_types:
+			b += result.bin()
+		return b
 
 # This name is kinda bad near MemoryType and those classes
 class SectionType(Section):
@@ -106,6 +114,12 @@ class SectionType(Section):
 		print('Type Section (0x%x - 0x%x)' % (self.start, self.end))
 		for proto in self.function_prototypes:
 			proto.pretty_print(indent+2)
+
+	def bin(self):
+		payload = uleb128Dump(len(self.function_prototypes))
+		for proto in self.function_prototypes:
+			payload += proto.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 class Limits():
 	def __init__(self, start, file_interface):
@@ -225,6 +239,17 @@ class ImportDescriptor():
 		elif self.type_id == 0x03:
 			self.global_type.pretty_print()
 
+	def bin(self):
+		b = struct.pack('B', self.type_id)
+		if self.type_id == 0x00:
+			b += self.type_index.bin()
+		elif self.type_id == 0x01:
+			b += self.table_type.bin()
+		elif self.type_id == 0x02:
+			b += self.memory_type.bin()
+		elif self.type_id == 0x03:
+			b += self.global_type.bin()
+		return b
 
 class Import():
 	def __init__(self, start, file_interface):
@@ -240,6 +265,12 @@ class Import():
 	def pretty_print(self, indent=0):
 		print(' '*indent + '%s.%s ' % (self.import_module.decode('utf8'), self.import_name.decode('utf8')), end='')
 		self.import_descriptor.pretty_print()
+
+	def bin(self):
+		b = nameDump(self.import_module)
+		b += nameDump(self.import_name)
+		b += self.import_descriptor.bin()
+		return b
 
 class SectionImport(Section):
 	def __init__(self, start, file_interface):
@@ -263,6 +294,11 @@ class SectionImport(Section):
 		for imp in self.imports:
 			imp.pretty_print(indent+2)
 
+	def bin(self):
+		payload = uleb128Dump(len(self.imports))
+		for imp in self.imports:
+			payload += imp.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 class SectionFunction(Section):
 	def __init__(self, start, file_interface):
@@ -285,6 +321,12 @@ class SectionFunction(Section):
 		for idx in range(len(self.indices)):
 			print(' '*(indent+2), end='')
 			print('Function %d: Type %s' % (idx, self.indices[idx]))
+
+	def bin(self):
+		payload = uleb128Dump(len(self.indices))
+		for index in self.indices:
+			payload += index.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 
 class Local():
@@ -360,6 +402,12 @@ class SectionTable(Section):
 		print('Table Section')
 		for table in self.tables:
 			table.pretty_print(indent+2)
+
+	def bin(self):
+		payload = uleb128Dump(len(self.tables))
+		for table in self.tables:
+			payload += table.bin()
+		return makeSectionBytes(self.section_id, payload)
 
 class SectionMemory(Section):
 	def __init__(self, start, file_interface):
@@ -762,11 +810,7 @@ class File():
 	def bin(self):
 		b = b'\x00asm\x01\x00\x00\x00'
 		for section in self.sections:
-			sections = [SectionMemory]
-			print(section, hasattr(section, 'bin'))
-			if type(section) in sections:
-				b += section.bin()
-				print(section.bin().hex())
-		# print(b.hex())
+			b += section.bin()
+		return b
 
 # TODO: add a vector type? would clean up code
