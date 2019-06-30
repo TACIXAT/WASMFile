@@ -13,7 +13,11 @@ class FileInterface():
         return len(self.contents)
 
 class Section():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Section.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.section_id = ord(file_interface.read(start, 1))
         self.start = start
         self.data_size, consumed = uleb128Parse(self.start+1, file_interface)
@@ -23,8 +27,12 @@ class Section():
         return 'Section(%s)' % self.section_id
 
 class SectionCustom(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionCustom.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.name, consumed = nameParse(self.data_start, file_interface)
         self.custom_data_start = self.data_start + consumed
         self.custom_data = file_interface.read(self.custom_data_start, self.data_size-consumed)
@@ -43,7 +51,11 @@ class SectionCustom(Section):
         return makeSectionBytes(self.section_id, payload)
 
 class FunctionType():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            FunctionType.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         magic = ord(file_interface.read(start, 1))
         if magic != 0x60:
@@ -95,8 +107,12 @@ class FunctionType():
 
 # This name is kinda bad near MemoryType and those classes
 class SectionType(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionType.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         type_count, consumed = uleb128Parse(self.data_start, file_interface)
         self.function_prototypes = []
         off = self.data_start + consumed
@@ -122,7 +138,11 @@ class SectionType(Section):
         return makeSectionBytes(self.section_id, payload)
 
 class Limits():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Limits.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.type_id = ord(file_interface.read(off, 1))
@@ -151,7 +171,11 @@ class Limits():
         return b
 
 class TableType():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            TableType.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = start
         self.element_type_id = ord(file_interface.read(off, 1))
@@ -170,7 +194,11 @@ class TableType():
         return struct.pack('B', self.element_type_id) + self.limits.bin()
 
 class MemoryType():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            MemoryType.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         self.limits = Limits(start, file_interface)
         self.end = self.limits.end
@@ -188,7 +216,11 @@ class GlobalType():
         0x01: 'variable',
     }
 
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            GlobalType.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.value_type = ValueType(off, file_interface)
@@ -208,7 +240,11 @@ class GlobalType():
         return b
 
 class ImportDescriptor():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            ImportDescriptor.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.type_id = ord(file_interface.read(off, 1))
@@ -252,7 +288,11 @@ class ImportDescriptor():
         return b
 
 class Import():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Import.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.import_module, consumed = nameParse(off, file_interface)
@@ -273,8 +313,12 @@ class Import():
         return b
 
 class SectionImport(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionImport.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = self.data_start
         import_count, consumed = uleb128Parse(self.data_start, file_interface)
         off += consumed
@@ -301,8 +345,12 @@ class SectionImport(Section):
         return makeSectionBytes(self.section_id, payload)
 
 class SectionFunction(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionFunction.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         index_count, consumed = uleb128Parse(self.data_start, file_interface)
         off = self.data_start + consumed
         self.indices = []
@@ -330,7 +378,11 @@ class SectionFunction(Section):
 
 
 class Local():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Local.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.count, consumed = uleb128Parse(off, file_interface)
@@ -384,8 +436,12 @@ class Function():
         return b
 
 class SectionTable(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionTable.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.tables = []
         table_count, consumed = uleb128Parse(self.data_start, file_interface)
         off = self.data_start + consumed
@@ -410,8 +466,12 @@ class SectionTable(Section):
         return makeSectionBytes(self.section_id, payload)
 
 class SectionMemory(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionMemory.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.memories = []
         memory_count, consumed = uleb128Parse(self.data_start, file_interface)
         off = self.data_start + consumed
@@ -437,7 +497,11 @@ class SectionMemory(Section):
 
 
 class Global():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Global.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.global_type = GlobalType(off, file_interface)
@@ -455,8 +519,12 @@ class Global():
         return b
 
 class SectionGlobal(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionGlobal.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.globals = []
         global_count, consumed = uleb128Parse(self.data_start, file_interface)
         off = self.data_start + consumed
@@ -489,7 +557,11 @@ class ExportDesriptor():
         3: 'global',
     }
 
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            ExportDesriptor.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = start
         self.type_id = ord(file_interface.read(off, 1))
@@ -513,7 +585,11 @@ class ExportDesriptor():
         return b
 
 class Export():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Export.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.name, consumed = nameParse(off, file_interface)
@@ -532,8 +608,12 @@ class Export():
         return b
 
 class SectionExport(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionExport.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.exports = []
 
         export_count, consumed = uleb128Parse(self.data_start, file_interface)
@@ -560,8 +640,12 @@ class SectionExport(Section):
         return makeSectionBytes(self.section_id, payload)
 
 class SectionStart(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionStart.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = self.data_start
         self.function_index = Index(off, file_interface)
         self.end = self.function_index.end
@@ -579,7 +663,11 @@ class SectionStart(Section):
         return makeSectionBytes(self.section_id, self.function_index.bin())
 
 class Element():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Element.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = start
         self.table_index = Index(off, file_interface)
@@ -617,8 +705,12 @@ class Element():
 
 
 class SectionElement(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionElement.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = self.data_start
         self.elements = []
         element_count, consumed = uleb128Parse(off, file_interface)
@@ -644,7 +736,11 @@ class SectionElement(Section):
         return makeSectionBytes(self.section_id, payload)
 
 class Code():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Code.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.size, consumed = uleb128Parse(start, file_interface)
@@ -661,8 +757,12 @@ class Code():
         return b
 
 class SectionCode(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionCode.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.codes = []
 
         code_count, consumed = uleb128Parse(self.data_start, file_interface)
@@ -690,7 +790,11 @@ class SectionCode(Section):
 
 
 class Data():
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
+        if file_interface:
+            Data.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.memory_index = Index(off, file_interface)
@@ -720,8 +824,12 @@ class Data():
         return b
 
 class SectionData(Section):
-    def __init__(self, start, file_interface):
+    def __init__(self, start=0, file_interface=None):
         Section.__init__(self, start, file_interface)
+        if file_interface:
+            SectionData.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = self.data_start
         data_count, consumed = uleb128Parse(off, file_interface)
         off += consumed

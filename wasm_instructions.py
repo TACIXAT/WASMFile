@@ -13,6 +13,10 @@ class ValueType():
     }
 
     def __init__(self, start, file_interface):
+        if file_interface:
+            ValueType.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         self.type_id = ord(file_interface.read(self.start, 1))
         if self.type_id not in self.value_type_lookup:
@@ -30,6 +34,10 @@ class Instruction():
     annotations = []
 
     def __init__(self, start, file_interface):
+        if file_interface:
+            Instruction.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         self.opcode = ord(file_interface.read(start, 1))
         self.end = start + 1
@@ -42,6 +50,10 @@ class Instruction():
 
 class Memarg():
     def __init__(self, start, file_interface):
+        if file_interface:
+            Memarg.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         off = self.start
         self.alignment, consumed = uleb128Parse(off, file_interface)
@@ -58,6 +70,10 @@ class Memarg():
 class InstructionMemory(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            InstructionMemory.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start+1
         self.memarg = Memarg(off, file_interface)
         self.end = self.memarg.end
@@ -67,6 +83,10 @@ class InstructionMemory(Instruction):
 
 class Index():
     def __init__(self, start, file_interface):
+        if file_interface:
+            Index.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         self.index, consumed = uleb128Parse(self.start, file_interface)
         self.end = self.start + consumed
@@ -84,6 +104,10 @@ class Index():
 class InstructionLocal(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            InstructionLocal.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.local_index = Index(off, file_interface)
         self.end = self.local_index.end
@@ -94,6 +118,10 @@ class InstructionLocal(Instruction):
 class InstructionGlobal(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            InstructionGlobal.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.global_index = Index(off, file_interface)
         self.end = self.global_index.end
@@ -104,6 +132,10 @@ class InstructionGlobal(Instruction):
 class InstructionBranch(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            InstructionBranch.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.label_index = Index(off, file_interface)
         self.end = self.label_index.end
@@ -121,6 +153,10 @@ class Nop(Instruction):
 
 class Blocktype():
     def __init__(self, start, file_interface):
+        if file_interface:
+            Blocktype.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         self.start = start
         b = file_interface.read(self.start, 1)
         if b == b'\x40':
@@ -137,6 +173,10 @@ class Blocktype():
 class Block(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            Block.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.block_type = Blocktype(off, file_interface)
         off = self.block_type.end
@@ -168,6 +208,10 @@ class Block(Instruction):
 class Loop(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            Loop.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.block_type = Blocktype(off, file_interface)
         off = self.block_type.end
@@ -199,6 +243,10 @@ class Loop(Instruction):
 class If(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            If.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
 
         self.block_type = Blocktype(off, file_interface)
@@ -257,6 +305,10 @@ class BranchIf(InstructionBranch):
 class BranchTable(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            BranchTable.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         label_count, consumed = uleb128Parse(off, file_interface)
         off += consumed
@@ -290,6 +342,10 @@ class BranchTable(Instruction):
 class Call(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            Call.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.function_index = Index(off, file_interface)
         self.end = self.function_index.end
@@ -303,6 +359,10 @@ class Call(Instruction):
 class CallIndirect(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            CallIndirect.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start + 1
         self.type_index = Index(off, file_interface)
         b = file_interface.read(self.type_index.end, 1)
@@ -447,6 +507,10 @@ class I64Store32(InstructionMemory):
 class InstructionMemoryLong(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            InstructionMemoryLong.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         b = file_interface.read(start+1, 1)
         if b != b'\x00':
             raise WASMError('second byte not null')
@@ -466,6 +530,10 @@ class MemoryGrow(InstructionMemoryLong):
 class InstructionIConst(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            InstructionIConst.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start+1
         self.constant, consumed = sleb128Parse(off, file_interface)
         self.end = off + consumed
@@ -484,6 +552,10 @@ class I64Const(InstructionIConst):
 class F32Const(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            F32Const.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start+1
         self.constant, consumed = f32Parse(off, file_interface)
         self.end = off + consumed
@@ -497,6 +569,10 @@ class F32Const(Instruction):
 class F64Const(Instruction):
     def __init__(self, start, file_interface):
         Instruction.__init__(self, start, file_interface)
+        if file_interface:
+            F64Const.__parse__(self, start, file_interface)
+
+    def __parse__(self, start, file_interface):
         off = start+1
         self.constant, consumed = f64Parse(off, file_interface)
         self.end = off + consumed
