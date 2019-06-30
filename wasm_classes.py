@@ -1,6 +1,6 @@
+import struct
 from wasm_instructions import *
 from wasm_utils import *
-import struct
 
 class FileInterface():
     def __init__(self, contents):
@@ -878,7 +878,7 @@ class File():
 
     def __init__(self, file_interface=None):
         self.sections = []
-        
+
         if not file_interface:
             return 
 
