@@ -1,6 +1,6 @@
-#  parsing library for wasm file
+# parsing library made 
 # Author: TACIXAT
-from wasm_classes import File, FileInterface
+from wasm_classes import File, FileInterface, SectionType
 import argparse
 
 def main():
@@ -14,7 +14,23 @@ def main():
 		file_interface = FileInterface(f.read())
 
 	wasm = File(file_interface)
-	wasm.pretty_print()
+
+	signatures = set()
+	for section in wasm.sections:
+		if type(section) is SectionType:
+			section.pretty_print()
+			for proto in section.function_prototypes:
+				param_types = []
+				for param in proto.param_types:
+					param_types.append(param.type)
+				signatures.add(tuple(param_types))
+
+				result_types = []
+				for param in proto.result_types:
+					result_types.append(param.type)
+				signatures.add(tuple(result_types))
+
+	print(signatures)
 
 	if args.output_file:
 		with open(args.output_file, 'wb+') as f:
@@ -28,3 +44,9 @@ def main():
 
 if __name__ == '__main__':
 	main()
+
+# enumerate function params and returns
+# add imports functions that take those as args and return them 
+# generate js for those imports
+# callback interface
+
