@@ -400,7 +400,11 @@ class Local():
         return b
 
 class Function():
-    def __init__(self, start, size, file_interface):
+    def __init__(self, start=0, size=0, file_interface=None):
+        if file_interface:
+            Function.__parse__(self, start, size, file_interface)
+
+    def __parse__(self, start, size, file_interface):
         self.start = start
         self.size = size
         self.locals = []
@@ -872,12 +876,13 @@ class File():
         11: SectionData,
     }
 
-    def __init__(self, file_interface, process=True):
-        self.raw = file_interface
+    def __init__(self, file_interface=None):
         self.sections = []
-
-        if not process:
+        
+        if not file_interface:
             return 
+
+        self.raw = file_interface
 
         if not self.check_magic():
             raise WASMError('incorrect magic bytes or version')

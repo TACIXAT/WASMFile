@@ -1250,7 +1250,11 @@ class Expression():
         0xBF: F64ReinterpretI64,
     }
 
-    def __init__(self, start, file_interface, end=None):
+    def __init__(self, start=0, file_interface=None, end=None):
+        if file_interface:
+            Expression.__parse__(self, start, file_interface, end)
+
+    def __parse__(self, start, file_interface, end=None):
         self.start = start
         self.instructions = []
         off = start 
