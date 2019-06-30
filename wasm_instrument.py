@@ -45,7 +45,6 @@ def main():
 if __name__ == '__main__':
     main()
 
-# enumerate function params and returns
 # add imports functions that take those as args and return them 
 # generate js for those imports
 # callback interface
