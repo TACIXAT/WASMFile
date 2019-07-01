@@ -31,6 +31,14 @@ def main():
                 signatures.add(tuple(result_types))
 
     print(signatures)
+    for sig in signatures:
+        for param in sig:
+            print(param, end=' ')
+        print()
+        # create param memory serialization function
+
+    # for param type
+        # create restore function
 
     if args.output_file:
         with open(args.output_file, 'wb+') as f:

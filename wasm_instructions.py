@@ -351,7 +351,7 @@ class Call(Instruction):
         self.end = self.function_index.end
 
     def __repr__(self):
-        return 'call'
+        return 'call %s' % self.function_index
 
     def bin(self):
         return struct.pack('B', self.opcode) + self.function_index.bin()
@@ -371,7 +371,7 @@ class CallIndirect(Instruction):
         self.end = self.type_index.end + 1
 
     def __repr__(self):
-        return 'call_indirect'
+        return 'call_indirect (Type %s)' % self.type_index
 
     def bin(self):
         return struct.pack('B', self.opcode) + self.type_index.bin() + b'\x00'

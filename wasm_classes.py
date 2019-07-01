@@ -338,6 +338,10 @@ class SectionImport(Section):
         for imp in self.imports:
             imp.pretty_print(indent+2)
 
+    def get_num_function_imports(self):
+        # Imports[].import_descriptor.type_id == 0
+        return len([imp for imp in self.imports if imp.import_descriptor.type_id == 0])
+
     def bin(self):
         payload = uleb128Dump(len(self.imports))
         for imp in self.imports:
@@ -363,12 +367,12 @@ class SectionFunction(Section):
     def __repr__(self):
         return 'SectionFunction'
 
-    def pretty_print(self, indent=0):
+    def pretty_print(self, indent=0, base=0):
         print(' '*indent, end='')
         print('Function Section')
         for idx in range(len(self.indices)):
             print(' '*(indent+2), end='')
-            print('Function %d: Type %s' % (idx, self.indices[idx]))
+            print('Function %d: Type %s' % (base+idx, self.indices[idx]))
 
     def bin(self):
         payload = uleb128Dump(len(self.indices))
@@ -424,9 +428,12 @@ class Function():
         if b != 0x0b:
             raise WASMError('expression ended with 0x%x' % b)
 
-    def pretty_print(self, indent=0):
+    def pretty_print(self, indent=0, idx=None):
         print(' '*indent, end='')
-        print('Function')
+        if idx:
+            print('Function %d' % idx)
+        else: 
+            print('Function')
         for local in self.locals:
             local.pretty_print(indent+2)
 
@@ -752,8 +759,8 @@ class Code():
         self.function = Function(off, self.size, file_interface)
         self.end = self.function.end
 
-    def pretty_print(self, indent=0):
-        self.function.pretty_print(indent)
+    def pretty_print(self, indent=0, idx=None):
+        self.function.pretty_print(indent, idx)
 
     def bin(self):
         b = uleb128Dump(self.size)
@@ -780,11 +787,12 @@ class SectionCode(Section):
     def __repr__(self):
         return 'SectionCode'
 
-    def pretty_print(self, indent=0):
+    def pretty_print(self, indent=0, base=0):
         print(' '*indent, end='')
         print('Code Section')
-        for code in self.codes:
-            code.pretty_print(indent+2)
+        for idx in range(len(self.codes)):
+            code = self.codes[idx]
+            code.pretty_print(indent+2, base+idx)
 
     def bin(self):
         payload = uleb128Dump(len(self.codes))
@@ -917,8 +925,22 @@ class File():
                 raise WASMError('bad ending for section %s' % self.sections[-1])
 
     def pretty_print(self, indent=0):
+        function_base = self.get_num_function_imports()
         for section in self.sections:
-            section.pretty_print(indent)
+            if type(section) in [SectionFunction, SectionCode]:
+                section.pretty_print(indent, function_base)
+            else:
+                section.pretty_print(indent)
+
+    def get_num_function_imports(self):
+        import_sections = self.get_sections_by_class(SectionImport)
+        if len(import_sections) != 1:
+            return 0
+        import_section = import_sections[0]
+        return import_section.get_num_function_imports()
+
+    def get_sections_by_class(self, _class):
+        return [ea for ea in self.sections if type(ea) == _class]
 
     def bin(self):
         b = b'\x00asm\x01\x00\x00\x00'
